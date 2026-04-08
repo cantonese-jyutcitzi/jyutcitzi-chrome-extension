@@ -71,5 +71,31 @@
     return !!(node && !node.terminal && this.hasAnyChild(node));
   };
 
+  /**
+   * All dictionary keys starting with `buffer`, up to `limit` (DFS order then sorted).
+   */
+  JyutcitziTrie.prototype.keysWithPrefix = function (buffer, limit) {
+    var node = this.follow(buffer);
+    if (!node) return [];
+    var acc = [];
+
+    function walk(n, suffix) {
+      if (acc.length >= limit) return;
+      if (n.terminal) acc.push(buffer + suffix);
+      var keys = Object.keys(n.children).sort();
+      for (var i = 0; i < keys.length; i++) {
+        if (acc.length >= limit) return;
+        walk(n.children[keys[i]], suffix + keys[i]);
+      }
+    }
+
+    walk(node, "");
+    acc.sort(function (a, b) {
+      if (a.length !== b.length) return a.length - b.length;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+    return acc;
+  };
+
   globalThis.JyutcitziTrie = JyutcitziTrie;
 })();

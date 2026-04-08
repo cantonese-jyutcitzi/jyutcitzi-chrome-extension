@@ -1,12 +1,28 @@
 /**
  * Jyutcitzi: buffer → dictionary lookup → replace in input/textarea.
+ * IME-style scrollable candidate panel (Shadow DOM so page CSS cannot hide it).
  */
 (function () {
   var trie = null;
   var lookup = null;
   var ready = false;
+  var loadError = null;
 
   var stateMap = new WeakMap();
+
+  /** Max candidates to collect (scroll inside panel). */
+  var MAX_CANDIDATES = 800;
+
+  var hostEl = null;
+  var shadow = null;
+  var panelEl = null;
+  var listEl = null;
+  var hintEl = null;
+
+  var menuItems = [];
+  var menuHighlight = 0;
+  var menuField = null;
+  var ignoreNextFieldBlur = false;
 
   function fieldState(el) {
     if (!stateMap.has(el))
@@ -16,6 +32,7 @@
 
   function resetState(el) {
     fieldState(el).buffer = "";
+    hideMenu();
   }
 
   function isTextField(el) {
@@ -27,6 +44,239 @@
       return t === "text" || t === "search" || t === "";
     }
     return false;
+  }
+
+  function ensureMenuUi() {
+    if (hostEl) return;
+
+    hostEl = document.createElement("div");
+    hostEl.id = "jyutcitzi-ime-host";
+    hostEl.setAttribute("data-jyutcitzi-ime", "1");
+    hostEl.style.cssText =
+      "position:fixed!important;inset:0!important;width:100%!important;height:100%!important;margin:0!important;padding:0!important;border:0!important;pointer-events:none!important;z-index:2147483647!important;background:transparent!important;";
+
+    shadow = hostEl.attachShadow({ mode: "closed" });
+
+    var css = document.createElement("style");
+    css.textContent = [
+      ".jtc-panel {",
+      "  position: fixed;",
+      "  min-width: 220px;",
+      "  max-width: min(520px, 92vw);",
+      "  background: #f5f5f5;",
+      "  border: 1px solid #888;",
+      "  border-radius: 4px;",
+      "  box-shadow: 0 6px 24px rgba(0,0,0,.2);",
+      "  font: 14px/1.35 system-ui, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;",
+      "  color: #111;",
+      "  pointer-events: auto;",
+      "  overflow: hidden;",
+      "  display: none;",
+      "  flex-direction: column;",
+      "}",
+      ".jtc-hint {",
+      "  padding: 4px 8px;",
+      "  font-size: 11px;",
+      "  color: #555;",
+      "  background: #e8e8e8;",
+      "  border-bottom: 1px solid #ccc;",
+      "}",
+      ".jtc-list {",
+      "  max-height: min(280px, 40vh);",
+      "  overflow-y: auto;",
+      "  overflow-x: hidden;",
+      "}",
+      ".jtc-row {",
+      "  display: flex;",
+      "  align-items: center;",
+      "  gap: 8px;",
+      "  padding: 6px 10px;",
+      "  cursor: pointer;",
+      "  border-bottom: 1px solid #e0e0e0;",
+      "}",
+      ".jtc-row:last-child { border-bottom: none; }",
+      ".jtc-row:hover, .jtc-row.jtc-active { background: #d6e8ff; }",
+      ".jtc-num {",
+      "  flex: 0 0 1.4em;",
+      "  text-align: right;",
+      "  color: #666;",
+      "  font-size: 12px;",
+      "}",
+      ".jtc-key {",
+      "  flex: 0 0 auto;",
+      "  font-weight: 600;",
+      "  color: #0b57d0;",
+      "  max-width: 45%;",
+      "  overflow: hidden;",
+      "  text-overflow: ellipsis;",
+      "  white-space: nowrap;",
+      "}",
+      ".jtc-out {",
+      "  flex: 1;",
+      "  min-width: 0;",
+      "  overflow: hidden;",
+      "  text-overflow: ellipsis;",
+      "  white-space: nowrap;",
+      "}",
+    ].join("\n");
+
+    panelEl = document.createElement("div");
+    panelEl.className = "jtc-panel";
+    panelEl.setAttribute("role", "listbox");
+
+    hintEl = document.createElement("div");
+    hintEl.className = "jtc-hint";
+    hintEl.textContent =
+      "↑↓ 選擇 · Enter / Tab 確認 · 1–9 快捷 · Esc 關閉";
+
+    listEl = document.createElement("div");
+    listEl.className = "jtc-list";
+
+    panelEl.appendChild(hintEl);
+    panelEl.appendChild(listEl);
+
+    shadow.appendChild(css);
+    shadow.appendChild(panelEl);
+
+    listEl.addEventListener(
+      "mousedown",
+      function (e) {
+        ignoreNextFieldBlur = true;
+        e.preventDefault();
+      },
+      true
+    );
+
+    (document.documentElement || document.body).appendChild(hostEl);
+  }
+
+  function hideMenu() {
+    menuItems = [];
+    menuHighlight = 0;
+    menuField = null;
+    if (panelEl) panelEl.style.display = "none";
+  }
+
+  function positionMenu(field) {
+    if (!panelEl || panelEl.style.display === "none") return;
+    var r = field.getBoundingClientRect();
+    var margin = 4;
+    var top = r.bottom + margin;
+    var left = r.left;
+    var panelH = 300;
+    if (top + panelH > window.innerHeight) {
+      top = Math.max(margin, r.top - panelH - margin);
+    }
+    if (left + 400 > window.innerWidth) {
+      left = Math.max(margin, window.innerWidth - 420);
+    }
+    panelEl.style.left = left + "px";
+    panelEl.style.top = top + "px";
+  }
+
+  function escapeHtml(s) {
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  }
+
+  function setHighlight(idx) {
+    menuHighlight = Math.max(0, Math.min(menuItems.length - 1, idx));
+    if (!listEl) return;
+    var rows = listEl.querySelectorAll(".jtc-row");
+    for (var i = 0; i < rows.length; i++) {
+      rows[i].classList.toggle("jtc-active", i === menuHighlight);
+    }
+    var active = rows[menuHighlight];
+    if (active) active.scrollIntoView({ block: "nearest" });
+  }
+
+  function renderMenu(field, buffer) {
+    ensureMenuUi();
+
+    if (!ready || !buffer || !trie) {
+      hideMenu();
+      return;
+    }
+
+    var keys = trie.keysWithPrefix(buffer, MAX_CANDIDATES);
+    if (!keys.length) {
+      hideMenu();
+      return;
+    }
+
+    menuField = field;
+    menuItems = keys;
+    menuHighlight = 0;
+
+    listEl.innerHTML = "";
+    for (var i = 0; i < keys.length; i++) {
+      var key = keys[i];
+      var entry = lookup.get(key);
+      var preview = entry ? entry.output : "";
+      if (preview.length > 80) preview = preview.slice(0, 77) + "…";
+
+      var row = document.createElement("div");
+      row.className = "jtc-row" + (i === 0 ? " jtc-active" : "");
+      row.setAttribute("role", "option");
+      row.dataset.index = String(i);
+
+      var num = document.createElement("span");
+      num.className = "jtc-num";
+      num.textContent = i < 9 ? String(i + 1) : "·";
+
+      var kEl = document.createElement("span");
+      kEl.className = "jtc-key";
+      kEl.textContent = key;
+
+      var oEl = document.createElement("span");
+      oEl.className = "jtc-out";
+      oEl.textContent = preview;
+
+      row.appendChild(num);
+      row.appendChild(kEl);
+      row.appendChild(oEl);
+
+      (function (idx, k, f) {
+        row.addEventListener("mouseenter", function () {
+          setHighlight(idx);
+        });
+        row.addEventListener("click", function () {
+          commitKey(f, k);
+        });
+      })(i, key, field);
+
+      listEl.appendChild(row);
+    }
+
+    hintEl.textContent =
+      keys.length >= MAX_CANDIDATES
+        ? "顯示首 " +
+          MAX_CANDIDATES +
+          " 項（可捲動）· ↑↓ Enter Tab · 1–9 · Esc"
+        : "↑↓ 選擇 · Enter / Tab 確認 · 1–9 快捷 · Esc 關閉";
+
+    panelEl.style.display = "flex";
+    positionMenu(field);
+  }
+
+  function menuVisible() {
+    return !!(panelEl && panelEl.style.display === "flex" && menuItems.length);
+  }
+
+  function commitKey(field, key) {
+    hideMenu();
+    return commitKeyAtCaret(field, key);
+  }
+
+  function scheduleMenuUpdate(field) {
+    requestAnimationFrame(function () {
+      var st = fieldState(field);
+      if (st.buffer) renderMenu(field, st.buffer);
+      else hideMenu();
+    });
   }
 
   function insertAtCaret(el, text) {
@@ -44,7 +294,6 @@
     el.setSelectionRange(from, from);
   }
 
-  /** Longest dictionary key that is a prefix of buf. */
   function longestTerminalPrefix(buf) {
     var best = null;
     for (var i = 1; i <= buf.length; i++) {
@@ -54,7 +303,6 @@
     return best;
   }
 
-  /** Replace suffix `key` before caret with output (must match field text). */
   function commitKeyAtCaret(el, key) {
     var entry = lookup.get(key);
     if (!entry) return false;
@@ -70,10 +318,6 @@
     return true;
   }
 
-  /**
-   * Commit longest terminal prefix of full buffer; removes mistaken tail in one step.
-   * Field text before caret must equal st.buffer.
-   */
   function commitLongestTerminal(el) {
     var st = fieldState(el);
     var full = st.buffer;
@@ -87,12 +331,15 @@
     el.value = el.value.slice(0, from) + out + el.value.slice(caret);
     el.setSelectionRange(from + out.length, from + out.length);
     resetState(el);
+    hideMenu();
     return true;
   }
 
   function tryCommitImmediate(el, buf) {
     if (!trie.exactNoExtend(buf)) return false;
-    return commitKeyAtCaret(el, buf);
+    var ok = commitKeyAtCaret(el, buf);
+    if (ok) hideMenu();
+    return ok;
   }
 
   function syncBufferFromField(el) {
@@ -115,16 +362,30 @@
 
   async function loadLexicon() {
     ready = false;
-    var stored = await chrome.storage.local.get({ outputMode: "web" });
-    var mode = stored.outputMode === "font" ? "font" : "web";
-    lookup = await JyutcitziParser.loadDictionaryBundle(mode);
-    trie = new JyutcitziTrie();
-    trie.addAll(Array.from(lookup.keys()));
-    ready = true;
+    loadError = null;
+    hideMenu();
+    try {
+      var stored = await chrome.storage.local.get({ outputMode: "web" });
+      var mode = stored.outputMode === "font" ? "font" : "web";
+      lookup = await JyutcitziParser.loadDictionaryBundle(mode);
+      trie = new JyutcitziTrie();
+      trie.addAll(Array.from(lookup.keys()));
+      ready = true;
+    } catch (err) {
+      loadError = err;
+      console.error("[Jyutcitzi] load failed", err);
+      ready = false;
+    }
   }
 
   function onKeyDown(e) {
-    if (!ready || !isTextField(e.target)) return;
+    if (!isTextField(e.target)) return;
+
+    if (!ready) {
+      if (loadError && e.key === "F12") return;
+      return;
+    }
+
     var el = e.target;
     if (e.isComposing) {
       resetState(el);
@@ -133,6 +394,47 @@
 
     var st = fieldState(el);
     syncBufferFromField(el);
+
+    if (menuVisible() && menuField === el) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setHighlight(menuHighlight + 1);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setHighlight(menuHighlight - 1);
+        return;
+      }
+      if (e.key === "PageDown") {
+        e.preventDefault();
+        setHighlight(menuHighlight + 8);
+        return;
+      }
+      if (e.key === "PageUp") {
+        e.preventDefault();
+        setHighlight(menuHighlight - 8);
+        return;
+      }
+      if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        var n = parseInt(e.key, 10) - 1;
+        if (n < menuItems.length) {
+          e.preventDefault();
+          commitKey(el, menuItems[n]);
+        }
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && menuItems.length) {
+        e.preventDefault();
+        commitKey(el, menuItems[menuHighlight]);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        hideMenu();
+        return;
+      }
+    }
 
     if (e.key === "Escape") {
       if (st.buffer.length) {
@@ -150,6 +452,7 @@
       st.buffer = st.buffer.slice(0, -1);
       var pos = el.selectionStart;
       deleteRange(el, pos - 1, pos);
+      scheduleMenuUpdate(el);
       return;
     }
 
@@ -158,6 +461,7 @@
       if (trie.isTerminal(st.buffer) && trie.exactAndExtend(st.buffer)) {
         e.preventDefault();
         commitKeyAtCaret(el, st.buffer);
+        hideMenu();
       }
       return;
     }
@@ -173,6 +477,7 @@
       insertAtCaret(el, lower);
       st.buffer = newBuf;
       if (tryCommitImmediate(el, st.buffer)) return;
+      scheduleMenuUpdate(el);
       return;
     }
 
@@ -193,6 +498,7 @@
         st.buffer = lower;
         tryCommitImmediate(el, st.buffer);
       }
+      scheduleMenuUpdate(el);
       return;
     }
 
@@ -201,19 +507,42 @@
       insertAtCaret(el, lower);
       st.buffer = lower;
       if (tryCommitImmediate(el, st.buffer)) return;
+      scheduleMenuUpdate(el);
       return;
     }
   }
 
-  function onSelectOrClick(e) {
-    if (!isTextField(e.target)) return;
-    requestAnimationFrame(function () {
-      syncBufferFromField(e.target);
-    });
+  function onScrollOrResize() {
+    if (menuField) positionMenu(menuField);
+  }
+
+  function eventPathIncludesHost(e) {
+    if (!hostEl || !e.composedPath) return false;
+    var path = e.composedPath();
+    for (var i = 0; i < path.length; i++) {
+      if (path[i] === hostEl) return true;
+    }
+    return false;
+  }
+
+  function onDocMouseDown(e) {
+    if (!panelEl || panelEl.style.display === "none") return;
+    if (eventPathIncludesHost(e)) return;
+    if (isTextField(e.target) && e.target === menuField) return;
+    hideMenu();
   }
 
   function onBlur(e) {
-    if (isTextField(e.target)) resetState(e.target);
+    if (!isTextField(e.target)) return;
+    var field = e.target;
+    setTimeout(function () {
+      if (ignoreNextFieldBlur) {
+        ignoreNextFieldBlur = false;
+        return;
+      }
+      hideMenu();
+      resetState(field);
+    }, 0);
   }
 
   chrome.storage.onChanged.addListener(function (changes, area) {
@@ -228,8 +557,20 @@
     var a = document.activeElement;
     if (a && isTextField(a)) syncBufferFromField(a);
   });
-  document.addEventListener("click", onSelectOrClick, true);
+  document.addEventListener(
+    "click",
+    function (e) {
+      if (!isTextField(e.target)) return;
+      requestAnimationFrame(function () {
+        syncBufferFromField(e.target);
+      });
+    },
+    true
+  );
   document.addEventListener("blur", onBlur, true);
+  window.addEventListener("scroll", onScrollOrResize, true);
+  window.addEventListener("resize", onScrollOrResize);
+  document.addEventListener("mousedown", onDocMouseDown, true);
 
   loadLexicon().catch(function (err) {
     console.error("[Jyutcitzi] init failed", err);

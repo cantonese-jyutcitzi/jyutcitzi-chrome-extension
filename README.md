@@ -2,10 +2,16 @@ Jyutcitzi Chrome extension — direct YAML lookup (canonical plan)
 
 ## Install (unpacked)
 
-1. Ensure dictionaries are present: `yaml/` symlinks into `submodules/jyutcitzi-RIME/` (run `git submodule update --init --recursive` if that folder is empty).
-2. Chrome → **Extensions** → enable **Developer mode** → **Load unpacked** → choose this repository folder.
+1. Ensure dictionaries are present: the whole **`yaml/`** directory must live next to `manifest.json` (files or symlinks). Run `git submodule update --init --recursive` if you use a submodule for RIME data.
+2. Chrome → **Extensions** → enable **Developer mode** → **Load unpacked** → choose the **folder that contains `manifest.json`** (not a parent directory).
 3. Optional: use the toolbar popup to switch **Web** vs **Font** dictionary output.
-4. Type Jyutping in a normal `input` or `textarea`; when a key is unique in the trie, it is replaced by the dictionary’s output string. **Enter** commits a prefix when a longer key still exists. **Esc** cancels the pending Latin buffer.
+4. Focus a normal `input` or `textarea`, type Jyutping letters. A **scrollable candidate panel** appears under the field (up to 800 matches). **↑↓** move, **Enter** / **Tab** confirm, **1–9** pick the first nine, **Esc** closes the panel (or clears the pending buffer if the panel is already closed). If the key is unique with no longer matches, it may commit immediately without needing the panel.
+
+### Packing / Chrome Web Store zip
+
+The extension loads dictionaries with `fetch(chrome.runtime.getURL("yaml/…"))`. Your **`.zip` must include the entire `yaml/` tree** (all `.dict.yaml` files the extension expects). If `yaml/` is missing from the zip, the lexicon never loads (`[Jyutcitzi] load failed` in the page console) and neither replacement nor the dropdown will work.
+
+Do **not** rely on `.gitignore` when zipping: confirm the archive actually contains `yaml/jyutcitzi_web.dict.yaml` etc. before upload.
 
 ---
 
