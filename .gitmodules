@@ -1,0 +1,3 @@
+[submodule "submodules/jyutcitzi-RIME"]
+	path = submodules/jyutcitzi-RIME
+	url = https://github.com/cantonese-jyutcitzi/jyutcitzi-RIME.git
