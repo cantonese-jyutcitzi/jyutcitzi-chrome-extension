@@ -178,7 +178,7 @@
     hintEl = document.createElement("div");
     hintEl.className = "jtc-hint";
     hintEl.textContent =
-      "↑↓ 選擇 · Enter / Tab 確認 · 1–9 快捷 · Esc 關閉";
+      "↑↓ 選擇 · Space / Enter / Tab 確認（可未完成拼音）· ⇧Space 空格 · 1–9 · Esc";
 
     listEl = document.createElement("div");
     listEl.className = "jtc-list";
@@ -306,8 +306,8 @@
       keys.length >= MAX_CANDIDATES
         ? "顯示首 " +
           MAX_CANDIDATES +
-          " 項（可捲動）· ↑↓ Enter Tab · 1–9 · Esc"
-        : "↑↓ 選擇 · Enter / Tab 確認 · 1–9 快捷 · Esc 關閉";
+          " 項（可捲動）· ↑↓ Space Enter Tab · ⇧Space 空格 · 1–9 · Esc"
+        : "↑↓ 選擇 · Space / Enter / Tab 確認（可未完成）· ⇧Space 空格 · 1–9 · Esc";
 
     panelEl.style.display = "flex";
     positionMenu(field);
@@ -343,9 +343,33 @@
     return !!(panelEl && panelEl.style.display === "flex" && menuItems.length);
   }
 
+  /**
+   * Commit a menu (or default) choice: remove the current Latin buffer only and
+   * insert output for dictKey (full RIME key), even if buffer is only a prefix.
+   */
+  function commitCandidateChoice(el, dictKey) {
+    var entry = lookup.get(dictKey);
+    if (!entry) return false;
+    var st = fieldState(el);
+    var bufLen = st.buffer.length;
+    if (bufLen === 0) return false;
+    if (dictKey.slice(0, bufLen) !== st.buffer) return false;
+    var caret = el.selectionStart;
+    var from = caret - bufLen;
+    if (from < 0) return false;
+    if (el.value.slice(from, caret) !== st.buffer) return false;
+    var v = el.value;
+    var end = el.selectionEnd;
+    el.value = v.slice(0, from) + entry.output + v.slice(end);
+    el.setSelectionRange(from + entry.output.length, from + entry.output.length);
+    resetState(el);
+    return true;
+  }
+
   function commitKey(field, key) {
+    var ok = commitCandidateChoice(field, key);
     hideMenu();
-    return commitKeyAtCaret(field, key);
+    return ok;
   }
 
   function scheduleMenuUpdate(field) {
@@ -493,6 +517,24 @@
         setHighlight(menuHighlight - 8);
         return;
       }
+      if (e.key === " ") {
+        if (e.shiftKey) {
+          e.preventDefault();
+          var spBuf = st.buffer + " ";
+          if (trie.follow(spBuf)) {
+            insertAtCaret(el, " ");
+            st.buffer = spBuf;
+            if (tryCommitImmediate(el, st.buffer)) return;
+            scheduleMenuUpdate(el);
+          }
+          return;
+        }
+        e.preventDefault();
+        if (menuItems.length) {
+          commitKey(el, menuItems[menuHighlight]);
+        }
+        return;
+      }
       if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         var n = parseInt(e.key, 10) - 1;
         if (n < menuItems.length) {
@@ -531,6 +573,18 @@
       deleteRange(el, pos - 1, pos);
       scheduleMenuUpdate(el);
       return;
+    }
+
+    if (e.key === " " && !e.shiftKey && st.buffer.length) {
+      if (!menuVisible() || menuField !== el) {
+        var spaceCands = trie.keysWithPrefix(st.buffer, MAX_CANDIDATES);
+        if (spaceCands.length > 0) {
+          e.preventDefault();
+          commitCandidateChoice(el, spaceCands[0]);
+          hideMenu();
+          return;
+        }
+      }
     }
 
     if (e.key === "Enter" || e.key === "Tab") {
