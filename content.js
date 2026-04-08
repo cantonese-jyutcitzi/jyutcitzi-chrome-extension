@@ -36,8 +36,13 @@
   var PREVIEW_FONT_PATH = "fonts/JyutcitziWithSourceHanSansHCRegular.ttf";
   /** CSS family name (must match .jtc-panel / .jtc-out). */
   var PREVIEW_FONT_FAMILY = "JyutcitziSourceHanHC";
+  /** Injected @font-face for page text; unicode-range limits to PUA only. */
+  var GLOBAL_PUA_FONT_FAMILY = "JyutcitziPUAFallback";
+  var GLOBAL_PUA_STYLE_ID = "jyutcitzi-global-pua-font";
 
   var previewFontPromise = null;
+  /** Opt-in: inject document-level font stack so PUA glyphs resolve (see popup). */
+  var globalPuaFontRendering = false;
 
   /**
    * @font-face inside closed Shadow DOM often fails to load chrome-extension:// URLs.
@@ -77,6 +82,33 @@
       return false;
     });
     return previewFontPromise;
+  }
+
+  function removeGlobalPuaRenderingStyle() {
+    var el = document.getElementById(GLOBAL_PUA_STYLE_ID);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  function applyGlobalPuaRenderingStyle() {
+    removeGlobalPuaRenderingStyle();
+    var fontUrl = chrome.runtime.getURL(PREVIEW_FONT_PATH);
+    var style = document.createElement("style");
+    style.id = GLOBAL_PUA_STYLE_ID;
+    style.textContent =
+      "@font-face{font-family:'" +
+      GLOBAL_PUA_FONT_FAMILY +
+      "';src:url('" +
+      fontUrl +
+      "') format('truetype');unicode-range:U+E000-F8FF,U+F0000-FFFFD,U+100000-10FFFD;font-weight:100 900;font-style:normal;}" +
+      "*:not(code):not(pre):not(kbd):not(samp):not(tt):not([class*='icon']){font-family:system-ui,-apple-system,'Segoe UI',sans-serif,'" +
+      GLOBAL_PUA_FONT_FAMILY +
+      "'!important;}";
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function syncGlobalPuaRenderingStyle() {
+    if (globalPuaFontRendering) applyGlobalPuaRenderingStyle();
+    else removeGlobalPuaRenderingStyle();
   }
 
   function fieldState(el) {
@@ -767,6 +799,10 @@
         if (a && isTextField(a)) resetState(a);
       }
     }
+    if (changes.globalPuaFontRendering) {
+      globalPuaFontRendering = changes.globalPuaFontRendering.newValue === true;
+      syncGlobalPuaRenderingStyle();
+    }
     if (changes.outputMode) {
       loadLexicon().catch(function (err) {
         console.error("[Jyutcitzi] reload failed", err);
@@ -774,9 +810,14 @@
     }
   });
 
-  chrome.storage.local.get({ imeEnabled: true }, function (r) {
-    imeEnabled = r.imeEnabled !== false;
-  });
+  chrome.storage.local.get(
+    { imeEnabled: true, globalPuaFontRendering: false },
+    function (r) {
+      imeEnabled = r.imeEnabled !== false;
+      globalPuaFontRendering = r.globalPuaFontRendering === true;
+      syncGlobalPuaRenderingStyle();
+    },
+  );
 
   window.addEventListener("keydown", onKeyDown, true);
   document.addEventListener("selectionchange", function () {

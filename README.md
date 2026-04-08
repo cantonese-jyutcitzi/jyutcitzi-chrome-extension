@@ -4,7 +4,7 @@ Jyutcitzi Chrome extension — direct YAML lookup (canonical plan)
 
 1. Ensure dictionaries are present: the whole **`yaml/`** directory must live next to `manifest.json` (files or symlinks). Run `git submodule update --init --recursive` if you use a submodule for RIME data.
 2. Chrome → **Extensions** → enable **Developer mode** → **Load unpacked** → choose the **folder that contains `manifest.json`** (not a parent directory).
-3. Optional: use the toolbar popup to switch **Web** vs **Font** dictionary output.
+3. Optional: use the toolbar popup to switch **Web** vs **Font** dictionary output, toggle **Enable Jyutcitzi in text fields**, or (under Advanced) **Global PUA glyph rendering**.
 4. Focus a normal `input` or `textarea`, type Jyutping letters. A **scrollable candidate panel** appears under the field (up to 800 matches). **↑↓** move, **Enter** / **Tab** confirm, **1–9** pick the first nine, **Esc** closes the panel (or clears the pending buffer if the panel is already closed). If the key is unique with no longer matches, it may commit immediately without needing the panel.
 
 ### Packing / Chrome Web Store zip
@@ -20,6 +20,17 @@ The dropdown preview uses **`fonts/JyutcitziWithSourceHanSansHCRegular.ttf`**, a
 (Jyutcitzi composed forms merged into Source Han Sans HC). Run `git submodule update --init --recursive` so `submodules/jyutcitzi-fonts` is populated.
 
 Packaged zips must include **`fonts/*.ttf`** as well as `yaml/`, or previews will fall back to tofu boxes.
+
+### Global PUA glyph rendering (optional, default off)
+
+In the toolbar popup, **Advanced → Global PUA glyph rendering** is **off** until you enable it. When on, the content script injects a stylesheet that:
+
+1. Declares a separate `@font-face` family (`JyutcitziPUAFallback`) pointing at the same bundled TTF, with **`unicode-range`** limited to private-use areas (BMP `U+E000–F8FF` and supplementary PUA planes). That makes the extension act as a **font fallback provider**: normal Latin and most CJK keep the page’s usual faces; only codepoints in those ranges can be drawn from the Jyutcitzi font.
+2. Appends that family at the end of a system UI `font-family` stack on most elements, with exclusions for `code`, `pre`, `kbd`, `samp`, `tt`, and elements whose `class` contains `icon` (heuristic—some icon systems will still slip through).
+
+This is **visual only** (no DOM text changes). It is most useful when the popup **Font (PUA glyphs)** output mode is selected, so text you type uses private-use codepoints that would otherwise show as tofu.
+
+**Caveat:** BMP private-use overlaps some sites’ icon fonts. If icons break on a site, turn global rendering off; a per-site blocklist could be added later. Narrowing `unicode-range` from the font’s `cmap` is another possible follow-up if needed.
 
 ---
 

@@ -1,16 +1,28 @@
 document.addEventListener("DOMContentLoaded", function () {
-  chrome.storage.local.get({ outputMode: "web", imeEnabled: true }, function (r) {
-    var v = r.outputMode === "font" ? "font" : "web";
-    var input = document.querySelector('input[name="mode"][value="' + v + '"]');
-    if (input) input.checked = true;
-    var imeCb = document.getElementById("imeEnabled");
-    if (imeCb) imeCb.checked = r.imeEnabled !== false;
-  });
+  chrome.storage.local.get(
+    { outputMode: "web", imeEnabled: true, globalPuaFontRendering: false },
+    function (r) {
+      var v = r.outputMode === "font" ? "font" : "web";
+      var input = document.querySelector('input[name="mode"][value="' + v + '"]');
+      if (input) input.checked = true;
+      var imeCb = document.getElementById("imeEnabled");
+      if (imeCb) imeCb.checked = r.imeEnabled !== false;
+      var globalPuaCb = document.getElementById("globalPuaFontRendering");
+      if (globalPuaCb) globalPuaCb.checked = r.globalPuaFontRendering === true;
+    },
+  );
 
   var imeCb = document.getElementById("imeEnabled");
   if (imeCb) {
     imeCb.addEventListener("change", function () {
       chrome.storage.local.set({ imeEnabled: imeCb.checked });
+    });
+  }
+
+  var globalPuaCb = document.getElementById("globalPuaFontRendering");
+  if (globalPuaCb) {
+    globalPuaCb.addEventListener("change", function () {
+      chrome.storage.local.set({ globalPuaFontRendering: globalPuaCb.checked });
     });
   }
 
