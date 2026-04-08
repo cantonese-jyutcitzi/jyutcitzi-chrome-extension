@@ -7,6 +7,8 @@
   var lookup = null;
   var ready = false;
   var loadError = null;
+  /** When false, keys pass through; toggle in popup or Caps Lock during composition. */
+  var imeEnabled = true;
 
   var stateMap = new WeakMap();
 
@@ -22,7 +24,13 @@
   var menuItems = [];
   var menuHighlight = 0;
   var menuField = null;
+  /** True while candidate list is shown; do not rely on panelEl.style alone. */
+  var menuOpen = false;
   var ignoreNextFieldBlur = false;
+
+  function isSpaceKey(e) {
+    return e.key === " " || e.code === "Space";
+  }
 
   /** Bundled: Jyutcitzi merged into Source Han Sans HC (submodule jyutcitzi-fonts). */
   var PREVIEW_FONT_PATH = "fonts/JyutcitziWithSourceHanSansHCRegular.ttf";
@@ -39,7 +47,9 @@
     if (previewFontPromise !== null) return previewFontPromise;
     previewFontPromise = (async function () {
       if (typeof FontFace === "undefined") {
-        console.warn("[Jyutcitzi] FontFace API missing; preview glyphs may not render.");
+        console.warn(
+          "[Jyutcitzi] FontFace API missing; preview glyphs may not render.",
+        );
         return false;
       }
       var url = chrome.runtime.getURL(PREVIEW_FONT_PATH);
@@ -49,7 +59,7 @@
           "[Jyutcitzi] Preview font not found (" +
             res.status +
             "). Add symlink: fonts/JyutcitziWithSourceHanSansHCRegular.ttf → jyutcitzi-fonts submodule. URL:",
-          url
+          url,
         );
         return false;
       }
@@ -70,8 +80,7 @@
   }
 
   function fieldState(el) {
-    if (!stateMap.has(el))
-      stateMap.set(el, { buffer: "" });
+    if (!stateMap.has(el)) stateMap.set(el, { buffer: "" });
     return stateMap.get(el);
   }
 
@@ -178,7 +187,7 @@
     hintEl = document.createElement("div");
     hintEl.className = "jtc-hint";
     hintEl.textContent =
-      "↑↓ 選擇 · Space / Enter / Tab 確認（可未完成拼音）· ⇧Space 空格 · 1–9 · Esc";
+      "↑↓ 選擇 · Space / Enter / Tab 確認（可未完成拼音）· ⇧Space 空格 · 1–9 · Esc · 拼音中 Caps Lock 暫停擴充";
 
     listEl = document.createElement("div");
     listEl.className = "jtc-list";
@@ -195,13 +204,14 @@
         ignoreNextFieldBlur = true;
         e.preventDefault();
       },
-      true
+      true,
     );
 
     (document.documentElement || document.body).appendChild(hostEl);
   }
 
   function hideMenu() {
+    menuOpen = false;
     menuItems = [];
     menuHighlight = 0;
     menuField = null;
@@ -306,20 +316,27 @@
       keys.length >= MAX_CANDIDATES
         ? "顯示首 " +
           MAX_CANDIDATES +
-          " 項（可捲動）· ↑↓ Space Enter Tab · ⇧Space 空格 · 1–9 · Esc"
-        : "↑↓ 選擇 · Space / Enter / Tab 確認（可未完成）· ⇧Space 空格 · 1–9 · Esc";
+          " 項（可捲動）· ↑↓ Space Enter Tab · ⇧Space 空格 · 1–9 · Esc · 拼音中 Caps Lock 暫停擴充"
+        : "↑↓ 選擇 · Space / Enter / Tab 確認（可未完成）· ⇧Space 空格 · 1–9 · Esc · 拼音中 Caps Lock 暫停擴充";
 
+    menuOpen = true;
     panelEl.style.display = "flex";
     positionMenu(field);
 
     void loadPreviewFontIntoDocument().then(function (ok) {
       if (!ok || !menuField || menuField !== field) return;
       if (fieldState(field).buffer !== buffer) return;
-      document.fonts.load("14px '" + PREVIEW_FONT_FAMILY + "'").then(function () {
-        if (!menuField || menuField !== field || fieldState(field).buffer !== buffer)
-          return;
-        repaintMenuPreviewCells();
-      });
+      document.fonts
+        .load("14px '" + PREVIEW_FONT_FAMILY + "'")
+        .then(function () {
+          if (
+            !menuField ||
+            menuField !== field ||
+            fieldState(field).buffer !== buffer
+          )
+            return;
+          repaintMenuPreviewCells();
+        });
     });
   }
 
@@ -340,7 +357,13 @@
   }
 
   function menuVisible() {
-    return !!(panelEl && panelEl.style.display === "flex" && menuItems.length);
+    return !!(
+      menuOpen &&
+      menuField &&
+      menuItems.length &&
+      panelEl &&
+      panelEl.style.display === "flex"
+    );
   }
 
   /**
@@ -361,14 +384,17 @@
     var v = el.value;
     var end = el.selectionEnd;
     el.value = v.slice(0, from) + entry.output + v.slice(end);
-    el.setSelectionRange(from + entry.output.length, from + entry.output.length);
+    el.setSelectionRange(
+      from + entry.output.length,
+      from + entry.output.length,
+    );
     resetState(el);
     return true;
   }
 
   function commitKey(field, key) {
     var ok = commitCandidateChoice(field, key);
-    hideMenu();
+    if (ok) hideMenu();
     return ok;
   }
 
@@ -457,7 +483,8 @@
 
   function printableKey(e) {
     if (e.key === " ") return " ";
-    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) return e.key;
+    if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey)
+      return e.key;
     return null;
   }
 
@@ -480,7 +507,26 @@
   }
 
   function onKeyDown(e) {
+    if (e.code === "CapsLock") {
+      if (imeEnabled) {
+        var act = document.activeElement;
+        if (act && isTextField(act)) syncBufferFromField(act);
+        var inComposition =
+          menuOpen ||
+          (act && isTextField(act) && fieldState(act).buffer.length > 0);
+        if (inComposition) {
+          imeEnabled = false;
+          chrome.storage.local.set({ imeEnabled: false });
+          if (act && isTextField(act)) resetState(act);
+          hideMenu();
+        }
+      }
+      return;
+    }
+
     if (!isTextField(e.target)) return;
+
+    if (!imeEnabled) return;
 
     if (!ready) {
       if (loadError && e.key === "F12") return;
@@ -491,6 +537,42 @@
     if (e.isComposing) {
       resetState(el);
       return;
+    }
+
+    /**
+     * Space must be handled BEFORE syncBufferFromField: sync calls resetState →
+     * hideMenu() when it thinks the field desynced, which clears menuItems and
+     * makes the menu branch a no-op (common on search boxes / racey caret).
+     */
+    if (isSpaceKey(e) && !e.shiftKey) {
+      var stEarly = fieldState(el);
+      var bufEarly = stEarly.buffer;
+      if (
+        bufEarly.length &&
+        menuOpen &&
+        menuField === el &&
+        menuItems.length > 0
+      ) {
+        var posE = el.selectionStart;
+        if (posE === el.selectionEnd && posE >= bufEarly.length) {
+          var fromE = posE - bufEarly.length;
+          if (el.value.slice(fromE, posE) === bufEarly) {
+            var hi = Math.max(0, Math.min(menuHighlight, menuItems.length - 1));
+            var pick = menuItems[hi];
+            if (
+              pick.length >= bufEarly.length &&
+              pick.slice(0, bufEarly.length) === bufEarly
+            ) {
+              if (commitCandidateChoice(el, pick)) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                hideMenu();
+                return;
+              }
+            }
+          }
+        }
+      }
     }
 
     var st = fieldState(el);
@@ -517,7 +599,7 @@
         setHighlight(menuHighlight - 8);
         return;
       }
-      if (e.key === " ") {
+      if (isSpaceKey(e)) {
         if (e.shiftKey) {
           e.preventDefault();
           var spBuf = st.buffer + " ";
@@ -575,13 +657,12 @@
       return;
     }
 
-    if (e.key === " " && !e.shiftKey && st.buffer.length) {
+    if (isSpaceKey(e) && !e.shiftKey && st.buffer.length) {
       if (!menuVisible() || menuField !== el) {
         var spaceCands = trie.keysWithPrefix(st.buffer, MAX_CANDIDATES);
         if (spaceCands.length > 0) {
           e.preventDefault();
-          commitCandidateChoice(el, spaceCands[0]);
-          hideMenu();
+          if (commitCandidateChoice(el, spaceCands[0])) hideMenu();
           return;
         }
       }
@@ -677,13 +758,27 @@
   }
 
   chrome.storage.onChanged.addListener(function (changes, area) {
-    if (area !== "local" || !changes.outputMode) return;
-    loadLexicon().catch(function (err) {
-      console.error("[Jyutcitzi] reload failed", err);
-    });
+    if (area !== "local") return;
+    if (changes.imeEnabled) {
+      imeEnabled = changes.imeEnabled.newValue !== false;
+      if (!imeEnabled) {
+        hideMenu();
+        var a = document.activeElement;
+        if (a && isTextField(a)) resetState(a);
+      }
+    }
+    if (changes.outputMode) {
+      loadLexicon().catch(function (err) {
+        console.error("[Jyutcitzi] reload failed", err);
+      });
+    }
   });
 
-  document.addEventListener("keydown", onKeyDown, true);
+  chrome.storage.local.get({ imeEnabled: true }, function (r) {
+    imeEnabled = r.imeEnabled !== false;
+  });
+
+  window.addEventListener("keydown", onKeyDown, true);
   document.addEventListener("selectionchange", function () {
     var a = document.activeElement;
     if (a && isTextField(a)) syncBufferFromField(a);
@@ -696,7 +791,7 @@
         syncBufferFromField(e.target);
       });
     },
-    true
+    true,
   );
   document.addEventListener("blur", onBlur, true);
   window.addEventListener("scroll", onScrollOrResize, true);

@@ -18,9 +18,17 @@
         font-size: 12px;
         color: #555;
       }
+      p.hint {
+        font-size: 11px;
+        color: #666;
+        line-height: 1.35;
+      }
     </style>
   </head>
   <body>
+    <p>Typing</p>
+    <label><input type="checkbox" id="imeEnabled" /> Enable Jyutcitzi in text fields</label>
+    <p class="hint">Uncheck for normal typing. While typing pinyin, Caps Lock also pauses the extension (OS caps may toggle).</p>
     <p>Output dictionary bundle</p>
     <label><input type="radio" name="mode" value="web" /> Web (禾旡·比`·版)</label>
     <label><input type="radio" name="mode" value="font" /> Font (PUA glyphs)</label>
