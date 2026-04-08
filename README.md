@@ -13,6 +13,14 @@ The extension loads dictionaries with `fetch(chrome.runtime.getURL("yaml/…"))`
 
 Do **not** rely on `.gitignore` when zipping: confirm the archive actually contains `yaml/jyutcitzi_web.dict.yaml` etc. before upload.
 
+### Candidate panel fonts (Jyutcitzi glyphs)
+
+The dropdown preview uses **`fonts/JyutcitziWithSourceHanSansHCRegular.ttf`**, a symlink to  
+`submodules/jyutcitzi-fonts/SourceHanSansHC/JyutcitziWithSourceHanSansHCRegular.ttf`  
+(Jyutcitzi composed forms merged into Source Han Sans HC). Run `git submodule update --init --recursive` so `submodules/jyutcitzi-fonts` is populated.
+
+Packaged zips must include **`fonts/*.ttf`** as well as `yaml/`, or previews will fall back to tofu boxes.
+
 ---
 
 One-sentence goal

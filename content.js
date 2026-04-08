@@ -24,6 +24,51 @@
   var menuField = null;
   var ignoreNextFieldBlur = false;
 
+  /** Bundled: Jyutcitzi merged into Source Han Sans HC (submodule jyutcitzi-fonts). */
+  var PREVIEW_FONT_PATH = "fonts/JyutcitziWithSourceHanSansHCRegular.ttf";
+  /** CSS family name (must match .jtc-panel / .jtc-out). */
+  var PREVIEW_FONT_FAMILY = "JyutcitziSourceHanHC";
+
+  var previewFontPromise = null;
+
+  /**
+   * @font-face inside closed Shadow DOM often fails to load chrome-extension:// URLs.
+   * Register the font on the page document via FontFace + ArrayBuffer instead.
+   */
+  function loadPreviewFontIntoDocument() {
+    if (previewFontPromise !== null) return previewFontPromise;
+    previewFontPromise = (async function () {
+      if (typeof FontFace === "undefined") {
+        console.warn("[Jyutcitzi] FontFace API missing; preview glyphs may not render.");
+        return false;
+      }
+      var url = chrome.runtime.getURL(PREVIEW_FONT_PATH);
+      var res = await fetch(url);
+      if (!res.ok) {
+        console.warn(
+          "[Jyutcitzi] Preview font not found (" +
+            res.status +
+            "). Add symlink: fonts/JyutcitziWithSourceHanSansHCRegular.ttf → jyutcitzi-fonts submodule. URL:",
+          url
+        );
+        return false;
+      }
+      var buf = await res.arrayBuffer();
+      var face = new FontFace(PREVIEW_FONT_FAMILY, buf, {
+        weight: "400",
+        style: "normal",
+      });
+      await face.load();
+      document.fonts.add(face);
+      await document.fonts.load("14px '" + PREVIEW_FONT_FAMILY + "'");
+      return true;
+    })().catch(function (err) {
+      console.warn("[Jyutcitzi] Preview font load error:", err);
+      return false;
+    });
+    return previewFontPromise;
+  }
+
   function fieldState(el) {
     if (!stateMap.has(el))
       stateMap.set(el, { buffer: "" });
@@ -67,7 +112,9 @@
       "  border: 1px solid #888;",
       "  border-radius: 4px;",
       "  box-shadow: 0 6px 24px rgba(0,0,0,.2);",
-      "  font: 14px/1.35 system-ui, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;",
+      "  font: 14px/1.35 '" +
+        PREVIEW_FONT_FAMILY +
+        "', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;",
       "  color: #111;",
       "  pointer-events: auto;",
       "  overflow: hidden;",
@@ -104,6 +151,7 @@
       "}",
       ".jtc-key {",
       "  flex: 0 0 auto;",
+      "  font-family: ui-monospace, 'Cascadia Code', 'Menlo', monospace;",
       "  font-weight: 600;",
       "  color: #0b57d0;",
       "  max-width: 45%;",
@@ -117,6 +165,9 @@
       "  overflow: hidden;",
       "  text-overflow: ellipsis;",
       "  white-space: nowrap;",
+      "  font-family: '" +
+        PREVIEW_FONT_FAMILY +
+        "', 'PingFang SC', 'Microsoft YaHei', sans-serif;",
       "}",
     ].join("\n");
 
@@ -260,6 +311,32 @@
 
     panelEl.style.display = "flex";
     positionMenu(field);
+
+    void loadPreviewFontIntoDocument().then(function (ok) {
+      if (!ok || !menuField || menuField !== field) return;
+      if (fieldState(field).buffer !== buffer) return;
+      document.fonts.load("14px '" + PREVIEW_FONT_FAMILY + "'").then(function () {
+        if (!menuField || menuField !== field || fieldState(field).buffer !== buffer)
+          return;
+        repaintMenuPreviewCells();
+      });
+    });
+  }
+
+  /** Re-apply preview text after fonts load (avoid recursive renderMenu). */
+  function repaintMenuPreviewCells() {
+    if (!listEl || !menuItems.length) return;
+    var rows = listEl.querySelectorAll(".jtc-row");
+    for (var i = 0; i < rows.length; i++) {
+      var key = menuItems[i];
+      if (!key) break;
+      var oEl = rows[i].querySelector(".jtc-out");
+      if (!oEl) continue;
+      var entry = lookup.get(key);
+      var preview = entry ? entry.output : "";
+      if (preview.length > 80) preview = preview.slice(0, 77) + "…";
+      oEl.textContent = preview;
+    }
   }
 
   function menuVisible() {
@@ -571,6 +648,8 @@
   window.addEventListener("scroll", onScrollOrResize, true);
   window.addEventListener("resize", onScrollOrResize);
   document.addEventListener("mousedown", onDocMouseDown, true);
+
+  loadPreviewFontIntoDocument().catch(function () {});
 
   loadLexicon().catch(function (err) {
     console.error("[Jyutcitzi] init failed", err);

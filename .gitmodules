@@ -1,3 +1,6 @@
 [submodule "submodules/jyutcitzi-RIME"]
 	path = submodules/jyutcitzi-RIME
 	url = https://github.com/cantonese-jyutcitzi/jyutcitzi-RIME.git
+[submodule "submodules/jyutcitzi-fonts"]
+	path = submodules/jyutcitzi-fonts
+	url = https://github.com/cantonese-jyutcitzi/jyutcitzi-fonts.git
