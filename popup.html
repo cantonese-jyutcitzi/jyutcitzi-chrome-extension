@@ -23,12 +23,37 @@
         color: #666;
         line-height: 1.35;
       }
+      p.warning {
+        font-size: 11px;
+        color: #5c3b00;
+        background: #fff8e6;
+        border: 1px solid #e6d08a;
+        border-radius: 4px;
+        padding: 8px;
+        line-height: 1.4;
+        margin: 6px 0 10px;
+      }
+      .section-title {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid #ddd;
+        font-size: 12px;
+        color: #333;
+        font-weight: 600;
+      }
     </style>
   </head>
   <body>
     <p>Typing</p>
     <label><input type="checkbox" id="imeEnabled" /> Enable Jyutcitzi in text fields</label>
     <p class="hint">Uncheck for normal typing. While typing pinyin, Caps Lock also pauses the extension (OS caps may toggle).</p>
+    <p class="section-title">Advanced</p>
+    <label><input type="checkbox" id="globalPuaFontRendering" /> Global PUA glyph rendering (optional)</label>
+    <p class="warning">
+      <strong>Note:</strong> When enabled, a font fallback is applied on this page so Jyutcitzi private-use
+      characters can display. The BMP private-use range can overlap some sites’ icon fonts—turn this off if
+      icons break. Most useful with <strong>Font (PUA)</strong> output below.
+    </p>
     <p>Output dictionary bundle</p>
     <label><input type="radio" name="mode" value="web" /> Web (禾旡·比`·版)</label>
     <label><input type="radio" name="mode" value="font" /> Font (PUA glyphs)</label>

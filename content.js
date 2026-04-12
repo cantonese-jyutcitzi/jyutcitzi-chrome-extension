@@ -4,6 +4,8 @@
  */
 (function () {
   var trie = null;
+  /** Prefix trie on tone-stripped keys (concatenated toneless Jyutping). */
+  var tlRoot = null;
   var lookup = null;
   var ready = false;
   var loadError = null;
@@ -14,6 +16,8 @@
 
   /** Max candidates to collect (scroll inside panel). */
   var MAX_CANDIDATES = 800;
+  /** When matching space-omitted phrases, scan more trie leaves before filtering. */
+  var PREFIX_SCAN_CAP = 5000;
 
   var hostEl = null;
   var shadow = null;
@@ -21,7 +25,8 @@
   var listEl = null;
   var hintEl = null;
 
-  var menuItems = [];
+  /** Each entry: { type: "dict", key } or { type: "seg", k1, k2, label }. */
+  var menuRows = [];
   var menuHighlight = 0;
   var menuField = null;
   /** True while candidate list is shown; do not rely on panelEl.style alone. */
@@ -36,8 +41,13 @@
   var PREVIEW_FONT_PATH = "fonts/JyutcitziWithSourceHanSansHCRegular.ttf";
   /** CSS family name (must match .jtc-panel / .jtc-out). */
   var PREVIEW_FONT_FAMILY = "JyutcitziSourceHanHC";
+  /** Injected @font-face for page text; unicode-range limits to PUA only. */
+  var GLOBAL_PUA_FONT_FAMILY = "JyutcitziPUAFallback";
+  var GLOBAL_PUA_STYLE_ID = "jyutcitzi-global-pua-font";
 
   var previewFontPromise = null;
+  /** Opt-in: inject document-level font stack so PUA glyphs resolve (see popup). */
+  var globalPuaFontRendering = false;
 
   /**
    * @font-face inside closed Shadow DOM often fails to load chrome-extension:// URLs.
@@ -79,13 +89,43 @@
     return previewFontPromise;
   }
 
+  function removeGlobalPuaRenderingStyle() {
+    var el = document.getElementById(GLOBAL_PUA_STYLE_ID);
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  function applyGlobalPuaRenderingStyle() {
+    removeGlobalPuaRenderingStyle();
+    var fontUrl = chrome.runtime.getURL(PREVIEW_FONT_PATH);
+    var style = document.createElement("style");
+    style.id = GLOBAL_PUA_STYLE_ID;
+    style.textContent =
+      "@font-face{font-family:'" +
+      GLOBAL_PUA_FONT_FAMILY +
+      "';src:url('" +
+      fontUrl +
+      "') format('truetype');unicode-range:U+E000-F8FF,U+F0000-FFFFD,U+100000-10FFFD;font-weight:100 900;font-style:normal;}" +
+      "*:not(code):not(pre):not(kbd):not(samp):not(tt):not([class*='icon']){font-family:system-ui,-apple-system,'Segoe UI',sans-serif,'" +
+      GLOBAL_PUA_FONT_FAMILY +
+      "'!important;}";
+    (document.head || document.documentElement).appendChild(style);
+  }
+
+  function syncGlobalPuaRenderingStyle() {
+    if (globalPuaFontRendering) applyGlobalPuaRenderingStyle();
+    else removeGlobalPuaRenderingStyle();
+  }
+
   function fieldState(el) {
-    if (!stateMap.has(el)) stateMap.set(el, { buffer: "" });
+    if (!stateMap.has(el))
+      stateMap.set(el, { buffer: "", panelHist: [] });
     return stateMap.get(el);
   }
 
   function resetState(el) {
-    fieldState(el).buffer = "";
+    var st = fieldState(el);
+    st.buffer = "";
+    st.panelHist = [];
     hideMenu();
   }
 
@@ -187,7 +227,7 @@
     hintEl = document.createElement("div");
     hintEl.className = "jtc-hint";
     hintEl.textContent =
-      "↑↓ 選擇 · Space / Enter / Tab 確認（可未完成拼音）· ⇧Space 空格 · 1–9 · Esc · 拼音中 Caps Lock 暫停擴充";
+      "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 面板關閉時 ⇧Space 輸入一般空格並結束組字 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充";
 
     listEl = document.createElement("div");
     listEl.className = "jtc-list";
@@ -212,7 +252,7 @@
 
   function hideMenu() {
     menuOpen = false;
-    menuItems = [];
+    menuRows = [];
     menuHighlight = 0;
     menuField = null;
     if (panelEl) panelEl.style.display = "none";
@@ -243,8 +283,58 @@
       .replace(/"/g, "&quot;");
   }
 
+  function panelHistoryPush(st, buffer, dictKeys) {
+    if (!dictKeys || !dictKeys.length) return;
+    if (!st.panelHist) st.panelHist = [];
+    var prevHi = 0;
+    for (var h = 0; h < st.panelHist.length; h++) {
+      if (st.panelHist[h].buffer === buffer) {
+        prevHi = st.panelHist[h].highlight;
+        break;
+      }
+    }
+    st.panelHist = st.panelHist.filter(function (x) {
+      return x.buffer !== buffer;
+    });
+    prevHi = Math.max(0, Math.min(prevHi, dictKeys.length - 1));
+    st.panelHist.unshift({
+      buffer: buffer,
+      highlight: prevHi,
+      dictKeys: dictKeys.slice(),
+    });
+    while (st.panelHist.length > 16) st.panelHist.pop();
+  }
+
+  function panelHistoryUpdateHighlight(st, buffer, hi) {
+    if (!st.panelHist) return;
+    for (var i = 0; i < st.panelHist.length; i++) {
+      if (st.panelHist[i].buffer === buffer) {
+        st.panelHist[i].highlight = hi;
+        return;
+      }
+    }
+  }
+
+  function pickPreferredFirstKey(field, P, pKeys) {
+    if (!pKeys.length) return null;
+    var st = fieldState(field);
+    var hist = st.panelHist || [];
+    for (var i = 0; i < hist.length; i++) {
+      if (hist[i].buffer !== P || !hist[i].dictKeys || !hist[i].dictKeys.length)
+        continue;
+      var hi = Math.max(
+        0,
+        Math.min(hist[i].highlight, hist[i].dictKeys.length - 1),
+      );
+      var want = hist[i].dictKeys[hi];
+      if (pKeys.indexOf(want) >= 0) return want;
+    }
+    var sortedP = sortKeysByWeight(pKeys);
+    return sortedP[0] || null;
+  }
+
   function setHighlight(idx) {
-    menuHighlight = Math.max(0, Math.min(menuItems.length - 1, idx));
+    menuHighlight = Math.max(0, Math.min(menuRows.length - 1, idx));
     if (!listEl) return;
     var rows = listEl.querySelectorAll(".jtc-row");
     for (var i = 0; i < rows.length; i++) {
@@ -252,6 +342,15 @@
     }
     var active = rows[menuHighlight];
     if (active) active.scrollIntoView({ block: "nearest" });
+    if (
+      menuField &&
+      menuRows.length &&
+      menuRows[menuHighlight] &&
+      menuRows[menuHighlight].type === "dict"
+    ) {
+      var st = fieldState(menuField);
+      panelHistoryUpdateHighlight(st, st.buffer, menuHighlight);
+    }
   }
 
   function renderMenu(field, buffer) {
@@ -262,25 +361,50 @@
       return;
     }
 
-    var keys = trie.keysWithPrefix(buffer, MAX_CANDIDATES);
-    if (!keys.length) {
+    var rows = buildMenuRows(buffer, MAX_CANDIDATES, field);
+    if (!rows.length) {
       hideMenu();
       return;
     }
 
+    var st = fieldState(field);
+    var coreKeys = keysForTypedBufferCore(buffer, MAX_CANDIDATES);
+    if (coreKeys.length) {
+      panelHistoryPush(st, buffer, coreKeys);
+    }
+
     menuField = field;
-    menuItems = keys;
+    menuRows = rows;
     menuHighlight = 0;
+    if (
+      coreKeys.length &&
+      st.panelHist &&
+      st.panelHist[0] &&
+      st.panelHist[0].buffer === buffer
+    ) {
+      menuHighlight = Math.max(
+        0,
+        Math.min(st.panelHist[0].highlight, rows.length - 1),
+      );
+    }
 
     listEl.innerHTML = "";
-    for (var i = 0; i < keys.length; i++) {
-      var key = keys[i];
-      var entry = lookup.get(key);
-      var preview = entry ? entry.output : "";
+    for (var i = 0; i < rows.length; i++) {
+      var mrow = rows[i];
+      var preview = "";
+      if (mrow.type === "dict") {
+        var entry = lookup.get(mrow.key);
+        preview = entry ? entry.output : "";
+      } else {
+        var eA = lookup.get(mrow.k1);
+        var eB = lookup.get(mrow.k2);
+        preview =
+          (eA ? eA.output : "") + (eB ? eB.output : "");
+      }
       if (preview.length > 80) preview = preview.slice(0, 77) + "…";
 
       var row = document.createElement("div");
-      row.className = "jtc-row" + (i === 0 ? " jtc-active" : "");
+      row.className = "jtc-row" + (i === menuHighlight ? " jtc-active" : "");
       row.setAttribute("role", "option");
       row.dataset.index = String(i);
 
@@ -290,7 +414,7 @@
 
       var kEl = document.createElement("span");
       kEl.className = "jtc-key";
-      kEl.textContent = key;
+      kEl.textContent = menuRowLabel(mrow);
 
       var oEl = document.createElement("span");
       oEl.className = "jtc-out";
@@ -300,24 +424,24 @@
       row.appendChild(kEl);
       row.appendChild(oEl);
 
-      (function (idx, k, f) {
+      (function (idx, f) {
         row.addEventListener("mouseenter", function () {
           setHighlight(idx);
         });
         row.addEventListener("click", function () {
-          commitKey(f, k);
+          commitPick(f, idx);
         });
-      })(i, key, field);
+      })(i, field);
 
       listEl.appendChild(row);
     }
 
     hintEl.textContent =
-      keys.length >= MAX_CANDIDATES
+      rows.length >= MAX_CANDIDATES
         ? "顯示首 " +
           MAX_CANDIDATES +
-          " 項（可捲動）· ↑↓ Space Enter Tab · ⇧Space 空格 · 1–9 · Esc · 拼音中 Caps Lock 暫停擴充"
-        : "↑↓ 選擇 · Space / Enter / Tab 確認（可未完成）· ⇧Space 空格 · 1–9 · Esc · 拼音中 Caps Lock 暫停擴充";
+          " 項（可捲動）· 開啟時 Space⇧ 僅確認 · 關閉時 ⇧Space 空格 · Enter Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充"
+        : "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 關閉時 ⇧Space 一般空格 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充";
 
     menuOpen = true;
     panelEl.style.display = "flex";
@@ -342,15 +466,22 @@
 
   /** Re-apply preview text after fonts load (avoid recursive renderMenu). */
   function repaintMenuPreviewCells() {
-    if (!listEl || !menuItems.length) return;
-    var rows = listEl.querySelectorAll(".jtc-row");
-    for (var i = 0; i < rows.length; i++) {
-      var key = menuItems[i];
-      if (!key) break;
-      var oEl = rows[i].querySelector(".jtc-out");
+    if (!listEl || !menuRows.length) return;
+    var domRows = listEl.querySelectorAll(".jtc-row");
+    for (var i = 0; i < domRows.length; i++) {
+      var mrow = menuRows[i];
+      if (!mrow) break;
+      var oEl = domRows[i].querySelector(".jtc-out");
       if (!oEl) continue;
-      var entry = lookup.get(key);
-      var preview = entry ? entry.output : "";
+      var preview = "";
+      if (mrow.type === "dict") {
+        var entry = lookup.get(mrow.key);
+        preview = entry ? entry.output : "";
+      } else {
+        var e1 = lookup.get(mrow.k1);
+        var e2 = lookup.get(mrow.k2);
+        preview = (e1 ? e1.output : "") + (e2 ? e2.output : "");
+      }
       if (preview.length > 80) preview = preview.slice(0, 77) + "…";
       oEl.textContent = preview;
     }
@@ -360,7 +491,7 @@
     return !!(
       menuOpen &&
       menuField &&
-      menuItems.length &&
+      menuRows.length &&
       panelEl &&
       panelEl.style.display === "flex"
     );
@@ -376,7 +507,7 @@
     var st = fieldState(el);
     var bufLen = st.buffer.length;
     if (bufLen === 0) return false;
-    if (dictKey.slice(0, bufLen) !== st.buffer) return false;
+    if (!keyMatchesTypedBufferIncomplete(dictKey, st.buffer)) return false;
     var caret = el.selectionStart;
     var from = caret - bufLen;
     if (from < 0) return false;
@@ -392,8 +523,41 @@
     return true;
   }
 
-  function commitKey(field, key) {
-    var ok = commitCandidateChoice(field, key);
+  function commitSegmentedChoice(el, k1, k2) {
+    var e1 = lookup.get(k1);
+    var e2 = lookup.get(k2);
+    if (!e1 || !e2) return false;
+    var st = fieldState(el);
+    var bufLen = st.buffer.length;
+    if (bufLen === 0) return false;
+    if (
+      tonelessLetters(k1) + tonelessLetters(k2) !==
+      tonelessLetters(st.buffer)
+    )
+      return false;
+    var caret = el.selectionStart;
+    var from = caret - bufLen;
+    if (from < 0) return false;
+    if (el.value.slice(from, caret) !== st.buffer) return false;
+    var out = e1.output + e2.output;
+    var v = el.value;
+    var end = el.selectionEnd;
+    el.value = v.slice(0, from) + out + v.slice(end);
+    el.setSelectionRange(from + out.length, from + out.length);
+    resetState(el);
+    return true;
+  }
+
+  function commitPickFromRow(el, row) {
+    if (!row) return false;
+    if (row.type === "dict") return commitCandidateChoice(el, row.key);
+    if (row.type === "seg") return commitSegmentedChoice(el, row.k1, row.k2);
+    return false;
+  }
+
+  function commitPick(field, index) {
+    var row = menuRows[index];
+    var ok = commitPickFromRow(field, row);
     if (ok) hideMenu();
     return ok;
   }
@@ -421,13 +585,228 @@
     el.setSelectionRange(from, from);
   }
 
-  function longestTerminalPrefix(buf) {
-    var best = null;
-    for (var i = 1; i <= buf.length; i++) {
-      var pre = buf.slice(0, i);
-      if (trie.isTerminal(pre)) best = pre;
+  function compactInput(s) {
+    return String(s).replace(/\s+/g, "");
+  }
+
+  /** Lowercase letters only: Jyutping body without tone digits or spaces. */
+  function tonelessLetters(s) {
+    return compactInput(String(s))
+      .toLowerCase()
+      .replace(/[1-9]/g, "");
+  }
+
+  function makeTlNode() {
+    return { children: Object.create(null), keys: [] };
+  }
+
+  function tlTrieAdd(fullKey) {
+    if (!tlRoot) return;
+    var str = tonelessLetters(fullKey);
+    if (!str.length) return;
+    var node = tlRoot;
+    for (var i = 0; i < str.length; i++) {
+      var ch = str[i];
+      if (!node.children[ch]) node.children[ch] = makeTlNode();
+      node = node.children[ch];
     }
-    return best;
+    if (node.keys.indexOf(fullKey) < 0) node.keys.push(fullKey);
+  }
+
+  function tlFollowString(s) {
+    if (!tlRoot || !s.length) return null;
+    var node = tlRoot;
+    for (var i = 0; i < s.length; i++) {
+      var next = node.children[s[i]];
+      if (!next) return null;
+      node = next;
+    }
+    return node;
+  }
+
+  function collectKeysUnderTlNode(node, limit) {
+    var acc = [];
+    function walk(n) {
+      if (acc.length >= limit) return;
+      for (var i = 0; i < n.keys.length && acc.length < limit; i++) {
+        acc.push(n.keys[i]);
+      }
+      var chs = Object.keys(n.children).sort();
+      for (var j = 0; j < chs.length && acc.length < limit; j++) {
+        walk(n.children[chs[j]]);
+      }
+    }
+    walk(node);
+    return acc;
+  }
+
+  function sortKeysByWeight(keys) {
+    return keys.slice().sort(function (a, b) {
+      var ea = lookup.get(a);
+      var eb = lookup.get(b);
+      var wa = ea && typeof ea.weight === "number" ? ea.weight : 0;
+      var wb = eb && typeof eb.weight === "number" ? eb.weight : 0;
+      if (wb !== wa) return wb - wa;
+      var la = tonelessLetters(a).length;
+      var lb = tonelessLetters(b).length;
+      if (la !== lb) return la - lb;
+      return a < b ? -1 : a > b ? 1 : 0;
+    });
+  }
+
+  function keysForTonelessBuffer(buffer, limit) {
+    var t = tonelessLetters(buffer);
+    if (!t.length || !tlRoot) return [];
+    var node = tlFollowString(t);
+    if (!node) return [];
+    return collectKeysUnderTlNode(node, limit);
+  }
+
+  /**
+   * Raw dict keys for buffer (no auxiliary segmentation). Used internally to
+   * avoid recursive auxiliary calls.
+   */
+  function keysForTypedBufferCore(buffer, limit) {
+    if (!buffer || !trie) return [];
+    var seen = Object.create(null);
+    var acc = [];
+
+    function addArr(arr) {
+      for (var i = 0; i < arr.length && acc.length < limit; i++) {
+        var k = arr[i];
+        if (!seen[k]) {
+          seen[k] = 1;
+          acc.push(k);
+        }
+      }
+    }
+
+    if (trie.follow(buffer)) {
+      addArr(trie.keysWithPrefix(buffer, limit));
+    }
+    addArr(keysForTonelessBuffer(buffer, Math.max(0, limit - acc.length)));
+
+    if (acc.length < limit) {
+      var p = trie.longestPrefix(buffer);
+      if (p.length) {
+        var tail = buffer.slice(p.length);
+        if (tail.length) {
+          addArr(
+            trie.keysWithPrefix(p + " " + tail, Math.max(0, limit - acc.length)),
+          );
+        }
+        var cbuf = compactInput(buffer);
+        var fromP = trie.keysWithPrefix(p, PREFIX_SCAN_CAP);
+        for (var j = 0; j < fromP.length && acc.length < limit; j++) {
+          var kk = fromP[j];
+          if (!seen[kk] && compactInput(kk).indexOf(cbuf) === 0) {
+            seen[kk] = 1;
+            acc.push(kk);
+          }
+        }
+      }
+    }
+
+    return sortKeysByWeight(acc).slice(0, limit);
+  }
+
+  /**
+   * When no YAML key matches the whole buffer, assume syllable boundaries and
+   * combine the user's last highlighted choice for the first syllable (from
+   * panel history) with second-syllable candidates (RIME-like carry).
+   */
+  function keysFromAssumedSegmentation(buffer, field, limit) {
+    var rows = [];
+    if (!buffer || buffer.length < 2 || !field || !lookup) return rows;
+    var tb = tonelessLetters(buffer);
+    if (!tb.length) return rows;
+
+    for (var split = 1; split < buffer.length; split++) {
+      var P = buffer.slice(0, split);
+      var T = buffer.slice(split);
+      var tP = tonelessLetters(P);
+      var tT = tonelessLetters(T);
+      if (!tP.length || !tT.length) continue;
+      if (tP + tT !== tb) continue;
+
+      var pKeys = keysForTypedBufferCore(P, 32).filter(function (k) {
+        return tonelessLetters(k) === tP;
+      });
+      if (!pKeys.length) continue;
+      var tKeys = keysForTypedBufferCore(T, 32).filter(function (k) {
+        return tonelessLetters(k) === tT;
+      });
+      if (!tKeys.length) continue;
+
+      var k1 = pickPreferredFirstKey(field, P, pKeys);
+      if (!k1) continue;
+      var tSorted = sortKeysByWeight(tKeys);
+      for (var ti = 0; ti < Math.min(tSorted.length, 20); ti++) {
+        var k2 = tSorted[ti];
+        var e1 = lookup.get(k1);
+        var e2 = lookup.get(k2);
+        if (!e1 || !e2) continue;
+        var w = (e1.weight || 0) + (e2.weight || 0);
+        rows.push({
+          type: "seg",
+          k1: k1,
+          k2: k2,
+          label: k1 + " · " + k2,
+          w: w,
+        });
+      }
+    }
+
+    rows.sort(function (a, b) {
+      return b.w - a.w;
+    });
+    var out = [];
+    var seen = Object.create(null);
+    for (var r = 0; r < rows.length && out.length < limit; r++) {
+      var id = rows[r].k1 + "\n" + rows[r].k2;
+      if (seen[id]) continue;
+      seen[id] = 1;
+      out.push(rows[r]);
+    }
+    return out;
+  }
+
+  function buildMenuRows(buffer, limit, field) {
+    if (!buffer || !trie) return [];
+    var core = keysForTypedBufferCore(buffer, limit);
+    if (core.length) {
+      return core.map(function (k) {
+        return { type: "dict", key: k };
+      });
+    }
+    if (field && buffer.length >= 2) {
+      return keysFromAssumedSegmentation(buffer, field, limit);
+    }
+    return [];
+  }
+
+  function menuRowLabel(row) {
+    return row.type === "dict" ? row.key : row.label;
+  }
+
+  /** Selected dict key matches what the user typed (literal or space-insensitive). */
+  function keyMatchesTypedBuffer(key, buf) {
+    if (!buf.length) return false;
+    if (key.length >= buf.length && key.slice(0, buf.length) === buf) return true;
+    return compactInput(key) === compactInput(buf);
+  }
+
+  /** Allow committing a longer phrase key when the typed buffer is a compact prefix. */
+  function keyMatchesTypedBufferIncomplete(key, buf) {
+    if (keyMatchesTypedBuffer(key, buf)) return true;
+    var ck = compactInput(key);
+    var cb = compactInput(buf);
+    if (ck.length >= cb.length && ck.slice(0, cb.length) === cb) return true;
+    var tk = tonelessLetters(key);
+    var tb = tonelessLetters(buf);
+    if (tk === tb) return true;
+    if (tk.length >= tb.length && tk.slice(0, tb.length) === tb) return true;
+    return false;
   }
 
   function commitKeyAtCaret(el, key) {
@@ -443,30 +822,6 @@
     el.setSelectionRange(pos, pos);
     resetState(el);
     return true;
-  }
-
-  function commitLongestTerminal(el) {
-    var st = fieldState(el);
-    var full = st.buffer;
-    if (!full) return false;
-    var key = longestTerminalPrefix(full);
-    if (!key) return false;
-    var caret = el.selectionStart;
-    var from = caret - full.length;
-    if (from < 0 || el.value.slice(from, caret) !== full) return false;
-    var out = lookup.get(key).output;
-    el.value = el.value.slice(0, from) + out + el.value.slice(caret);
-    el.setSelectionRange(from + out.length, from + out.length);
-    resetState(el);
-    hideMenu();
-    return true;
-  }
-
-  function tryCommitImmediate(el, buf) {
-    if (!trie.exactNoExtend(buf)) return false;
-    var ok = commitKeyAtCaret(el, buf);
-    if (ok) hideMenu();
-    return ok;
   }
 
   function syncBufferFromField(el) {
@@ -492,17 +847,22 @@
     ready = false;
     loadError = null;
     hideMenu();
+    tlRoot = null;
     try {
       var stored = await chrome.storage.local.get({ outputMode: "web" });
       var mode = stored.outputMode === "font" ? "font" : "web";
       lookup = await JyutcitziParser.loadDictionaryBundle(mode);
       trie = new JyutcitziTrie();
-      trie.addAll(Array.from(lookup.keys()));
+      var allKeys = Array.from(lookup.keys());
+      trie.addAll(allKeys);
+      tlRoot = makeTlNode();
+      for (var ki = 0; ki < allKeys.length; ki++) tlTrieAdd(allKeys[ki]);
       ready = true;
     } catch (err) {
       loadError = err;
       console.error("[Jyutcitzi] load failed", err);
       ready = false;
+      tlRoot = null;
     }
   }
 
@@ -541,34 +901,40 @@
 
     /**
      * Space must be handled BEFORE syncBufferFromField: sync calls resetState →
-     * hideMenu() when it thinks the field desynced, which clears menuItems and
+     * hideMenu() when it thinks the field desynced, which clears menuRows and
      * makes the menu branch a no-op (common on search boxes / racey caret).
      */
-    if (isSpaceKey(e) && !e.shiftKey) {
+    if (isSpaceKey(e)) {
       var stEarly = fieldState(el);
       var bufEarly = stEarly.buffer;
       if (
         bufEarly.length &&
         menuOpen &&
         menuField === el &&
-        menuItems.length > 0
+        menuRows.length > 0
       ) {
         var posE = el.selectionStart;
         if (posE === el.selectionEnd && posE >= bufEarly.length) {
           var fromE = posE - bufEarly.length;
           if (el.value.slice(fromE, posE) === bufEarly) {
-            var hi = Math.max(0, Math.min(menuHighlight, menuItems.length - 1));
-            var pick = menuItems[hi];
-            if (
-              pick.length >= bufEarly.length &&
-              pick.slice(0, bufEarly.length) === bufEarly
-            ) {
-              if (commitCandidateChoice(el, pick)) {
-                e.preventDefault();
-                e.stopImmediatePropagation();
-                hideMenu();
-                return;
+            var hi = Math.max(0, Math.min(menuHighlight, menuRows.length - 1));
+            var rowEarly = menuRows[hi];
+            var okEarly = false;
+            if (rowEarly.type === "dict") {
+              if (keyMatchesTypedBufferIncomplete(rowEarly.key, bufEarly)) {
+                okEarly = commitCandidateChoice(el, rowEarly.key);
               }
+            } else if (
+              tonelessLetters(rowEarly.k1) + tonelessLetters(rowEarly.k2) ===
+              tonelessLetters(bufEarly)
+            ) {
+              okEarly = commitSegmentedChoice(el, rowEarly.k1, rowEarly.k2);
+            }
+            if (okEarly) {
+              e.preventDefault();
+              e.stopImmediatePropagation();
+              hideMenu();
+              return;
             }
           }
         }
@@ -600,34 +966,23 @@
         return;
       }
       if (isSpaceKey(e)) {
-        if (e.shiftKey) {
-          e.preventDefault();
-          var spBuf = st.buffer + " ";
-          if (trie.follow(spBuf)) {
-            insertAtCaret(el, " ");
-            st.buffer = spBuf;
-            if (tryCommitImmediate(el, st.buffer)) return;
-            scheduleMenuUpdate(el);
-          }
-          return;
-        }
         e.preventDefault();
-        if (menuItems.length) {
-          commitKey(el, menuItems[menuHighlight]);
+        if (menuRows.length) {
+          commitPick(el, menuHighlight);
         }
         return;
       }
       if (/^[1-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
         var n = parseInt(e.key, 10) - 1;
-        if (n < menuItems.length) {
+        if (n < menuRows.length) {
           e.preventDefault();
-          commitKey(el, menuItems[n]);
+          commitPick(el, n);
         }
         return;
       }
-      if ((e.key === "Enter" || e.key === "Tab") && menuItems.length) {
+      if ((e.key === "Enter" || e.key === "Tab") && menuRows.length) {
         e.preventDefault();
-        commitKey(el, menuItems[menuHighlight]);
+        commitPick(el, menuHighlight);
         return;
       }
       if (e.key === "Escape") {
@@ -657,14 +1012,31 @@
       return;
     }
 
-    if (isSpaceKey(e) && !e.shiftKey && st.buffer.length) {
+    if (isSpaceKey(e) && st.buffer.length) {
+      if (menuVisible() && menuField === el) {
+        e.preventDefault();
+        if (menuRows.length) {
+          commitPick(el, menuHighlight);
+        }
+        return;
+      }
+      if (e.shiftKey) {
+        e.preventDefault();
+        insertAtCaret(el, " ");
+        resetState(el);
+        return;
+      }
       if (!menuVisible() || menuField !== el) {
-        var spaceCands = trie.keysWithPrefix(st.buffer, MAX_CANDIDATES);
-        if (spaceCands.length > 0) {
+        var spaceRows = buildMenuRows(st.buffer, MAX_CANDIDATES, el);
+        if (spaceRows.length > 0) {
           e.preventDefault();
-          if (commitCandidateChoice(el, spaceCands[0])) hideMenu();
+          if (commitPickFromRow(el, spaceRows[0])) hideMenu();
           return;
         }
+        e.preventDefault();
+        insertAtCaret(el, " ");
+        resetState(el);
+        return;
       }
     }
 
@@ -681,44 +1053,31 @@
     var ch = printableKey(e);
     if (ch === null) return;
 
+    if (ch === " ") return;
+
     var lower = ch >= "A" && ch <= "Z" ? ch.toLowerCase() : ch;
     var newBuf = st.buffer + lower;
 
-    if (trie.follow(newBuf)) {
+    if (trie.follow(newBuf) || tlFollowString(tonelessLetters(newBuf))) {
       e.preventDefault();
       insertAtCaret(el, lower);
       st.buffer = newBuf;
-      if (tryCommitImmediate(el, st.buffer)) return;
       scheduleMenuUpdate(el);
       return;
     }
 
     if (st.buffer.length) {
       e.preventDefault();
-      var prevBuf = st.buffer;
-      var key = longestTerminalPrefix(prevBuf);
-      if (key) {
-        commitLongestTerminal(el);
-      } else {
-        var pos = el.selectionStart;
-        deleteRange(el, pos - prevBuf.length, pos);
-        resetState(el);
-      }
-      st = fieldState(el);
       insertAtCaret(el, lower);
-      if (trie.follow(lower)) {
-        st.buffer = lower;
-        tryCommitImmediate(el, st.buffer);
-      }
+      st.buffer = newBuf;
       scheduleMenuUpdate(el);
       return;
     }
 
-    if (trie.follow(lower)) {
+    if (trie.follow(lower) || tlFollowString(tonelessLetters(lower))) {
       e.preventDefault();
       insertAtCaret(el, lower);
       st.buffer = lower;
-      if (tryCommitImmediate(el, st.buffer)) return;
       scheduleMenuUpdate(el);
       return;
     }
@@ -767,6 +1126,10 @@
         if (a && isTextField(a)) resetState(a);
       }
     }
+    if (changes.globalPuaFontRendering) {
+      globalPuaFontRendering = changes.globalPuaFontRendering.newValue === true;
+      syncGlobalPuaRenderingStyle();
+    }
     if (changes.outputMode) {
       loadLexicon().catch(function (err) {
         console.error("[Jyutcitzi] reload failed", err);
@@ -774,9 +1137,14 @@
     }
   });
 
-  chrome.storage.local.get({ imeEnabled: true }, function (r) {
-    imeEnabled = r.imeEnabled !== false;
-  });
+  chrome.storage.local.get(
+    { imeEnabled: true, globalPuaFontRendering: false },
+    function (r) {
+      imeEnabled = r.imeEnabled !== false;
+      globalPuaFontRendering = r.globalPuaFontRendering === true;
+      syncGlobalPuaRenderingStyle();
+    },
+  );
 
   window.addEventListener("keydown", onKeyDown, true);
   document.addEventListener("selectionchange", function () {
