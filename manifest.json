@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Jyutcitzi",
-  "version": "1.5.8",
-  "description": "Type Jyutping keys from jyutcitzi-RIME dictionaries; inserts web or font Jyutcitzi output in text fields. Applies a font layer for Jyutcitzi glyphs where present (visual rendering only; no page content changes). Optional global rendering mode applies only to Jyutcitzi private-use characters and may be disabled per user preference if conflicts occur on specific sites.",
+  "version": "1.5.9",
+  "description": "Jyutping-style typing in inputs and text areas. Web or Jyutcitzi PUA output; optional global PUA rendering. RIME dicts.",
   "icons": {
     "16": "icons/icon128.png",
     "32": "icons/icon128.png",
@@ -25,12 +25,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": [
-        "vendor/js-yaml.min.js",
-        "trie.js",
-        "parser.js",
-        "content.js"
-      ],
+      "js": ["vendor/js-yaml.min.js", "trie.js", "parser.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false
     }
