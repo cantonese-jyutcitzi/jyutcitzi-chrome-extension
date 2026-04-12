@@ -59,9 +59,8 @@ Focus a page `input`/`textarea`, type letters; the candidate panel should appear
 | **Shift+Space** | When the panel is **closed** and you still have a pending buffer: insert a normal space and end that composition. |
 | **Enter** / **Tab** | Confirm highlighted candidate when the panel is open. |
 | **1–9** | Pick rows 1–9. |
-| **Esc** | Close the panel, or clear the pending buffer if the panel is already closed. |
 | **Backspace** | Deletes within the pending buffer. |
-| **Caps Lock** | While composing: disables the extension for that session (same as turning it off in the popup). |
+| **Escape** | In a focused **text field**, **each press** toggles pause (normal typing ↔ Jyutcitzi). The key is consumed (`preventDefault`). Press again to resume. Panel and composition buffer are cleared on each toggle. |
 
 You can type **without tones** in many cases; tone variants often appear as separate rows. Longer phrases in the YAML use **spaces** in the key; the extension also matches **concatenated** toneless input where possible. If the full string has **no** dictionary key, the extension may offer **segmented** rows (first syllable from your last highlight or top weight, second syllable from the remainder) — a lightweight stand-in for RIME-style carry, not a full segmenter.
 
@@ -120,3 +119,4 @@ vendor/         # js-yaml
 - **Not in scope here:** `contenteditable`, a full RIME engine, or linguistic Jyutping parsing beyond what the YAML keys already encode.
 
 If something fails on a specific site, check the page **console** for `[Jyutcitzi]` messages and confirm `yaml/` and `fonts/` are present in the loaded extension directory.
+No i 
