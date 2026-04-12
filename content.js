@@ -9,8 +9,13 @@
   var lookup = null;
   var ready = false;
   var loadError = null;
-  /** When false, keys pass through; toggle in popup or Caps Lock during composition. */
+  /** When false, keys pass through (popup). */
   var imeEnabled = true;
+  /**
+   * Toggled on each Caps Lock keypress: while true, Jyutcitzi does not intercept
+   * (independent of OS Caps Lock LED).
+   */
+  var capsPaused = false;
 
   var stateMap = new WeakMap();
 
@@ -227,7 +232,7 @@
     hintEl = document.createElement("div");
     hintEl.className = "jtc-hint";
     hintEl.textContent =
-      "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 面板關閉時 ⇧Space 輸入一般空格並結束組字 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充";
+      "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 面板關閉時 ⇧Space 輸入一般空格並結束組字 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 按 Caps Lock 鍵切換暫停／恢復組字";
 
     listEl = document.createElement("div");
     listEl.className = "jtc-list";
@@ -440,8 +445,8 @@
       rows.length >= MAX_CANDIDATES
         ? "顯示首 " +
           MAX_CANDIDATES +
-          " 項（可捲動）· 開啟時 Space⇧ 僅確認 · 關閉時 ⇧Space 空格 · Enter Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充"
-        : "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 關閉時 ⇧Space 一般空格 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充";
+          " 項（可捲動）· 開啟時 Space⇧ 僅確認 · 關閉時 ⇧Space 空格 · Enter Tab · 1–9 · Esc · 無須鍵入聲調 · Caps Lock＝切換暫停"
+        : "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 關閉時 ⇧Space 一般空格 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 按 Caps Lock 切換暫停／恢復";
 
     menuOpen = true;
     panelEl.style.display = "flex";
@@ -867,26 +872,34 @@
   }
 
   function onKeyDown(e) {
+    if (!imeEnabled) return;
+
+    /**
+     * Each Caps Lock keypress toggles pause: Jyutcitzi off → on → off …
+     * Clears panel / buffer for the focused field; does not intercept the key.
+     */
     if (e.code === "CapsLock") {
-      if (imeEnabled) {
-        var act = document.activeElement;
-        if (act && isTextField(act)) syncBufferFromField(act);
-        var inComposition =
-          menuOpen ||
-          (act && isTextField(act) && fieldState(act).buffer.length > 0);
-        if (inComposition) {
-          imeEnabled = false;
-          chrome.storage.local.set({ imeEnabled: false });
-          if (act && isTextField(act)) resetState(act);
-          hideMenu();
-        }
+      capsPaused = !capsPaused;
+      if (menuOpen && menuField && isTextField(menuField)) {
+        resetState(menuField);
+      } else if (menuOpen) {
+        hideMenu();
+      }
+      var capAct = document.activeElement;
+      if (capAct && isTextField(capAct)) resetState(capAct);
+      return;
+    }
+
+    if (capsPaused) {
+      if (menuOpen && menuField && isTextField(menuField)) {
+        resetState(menuField);
+      } else if (menuOpen) {
+        hideMenu();
       }
       return;
     }
 
     if (!isTextField(e.target)) return;
-
-    if (!imeEnabled) return;
 
     if (!ready) {
       if (loadError && e.key === "F12") return;
@@ -1121,6 +1134,7 @@
     if (changes.imeEnabled) {
       imeEnabled = changes.imeEnabled.newValue !== false;
       if (!imeEnabled) {
+        capsPaused = false;
         hideMenu();
         var a = document.activeElement;
         if (a && isTextField(a)) resetState(a);

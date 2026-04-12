@@ -61,7 +61,7 @@ Focus a page `input`/`textarea`, type letters; the candidate panel should appear
 | **1–9** | Pick rows 1–9. |
 | **Esc** | Close the panel, or clear the pending buffer if the panel is already closed. |
 | **Backspace** | Deletes within the pending buffer. |
-| **Caps Lock** | While composing: disables the extension for that session (same as turning it off in the popup). |
+| **Caps Lock** | **Each press** of the Caps Lock key **toggles** Jyutcitzi pause for this tab: paused means keys are not intercepted (normal typing). Press again to resume. Panel/buffer are cleared when you toggle. Independent of the OS Caps Lock indicator. |
 
 You can type **without tones** in many cases; tone variants often appear as separate rows. Longer phrases in the YAML use **spaces** in the key; the extension also matches **concatenated** toneless input where possible. If the full string has **no** dictionary key, the extension may offer **segmented** rows (first syllable from your last highlight or top weight, second syllable from the remainder) — a lightweight stand-in for RIME-style carry, not a full segmenter.
 
@@ -120,3 +120,4 @@ vendor/         # js-yaml
 - **Not in scope here:** `contenteditable`, a full RIME engine, or linguistic Jyutping parsing beyond what the YAML keys already encode.
 
 If something fails on a specific site, check the page **console** for `[Jyutcitzi]` messages and confirm `yaml/` and `fonts/` are present in the loaded extension directory.
+No i 
