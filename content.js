@@ -9,8 +9,12 @@
   var lookup = null;
   var ready = false;
   var loadError = null;
-  /** When false, keys pass through; toggle in popup or Caps Lock during composition. */
+  /** When false, keys pass through (popup). */
   var imeEnabled = true;
+  /**
+   * Toggled on each Escape in a text field: while true, Jyutcitzi does not intercept.
+   */
+  var extensionPaused = false;
 
   var stateMap = new WeakMap();
 
@@ -227,7 +231,7 @@
     hintEl = document.createElement("div");
     hintEl.className = "jtc-hint";
     hintEl.textContent =
-      "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 面板關閉時 ⇧Space 輸入一般空格並結束組字 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充";
+      "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 面板關閉時 ⇧Space 輸入一般空格並結束組字 · Enter / Tab · 1–9 · Esc＝暫停／恢復擴充 · 無須鍵入聲調";
 
     listEl = document.createElement("div");
     listEl.className = "jtc-list";
@@ -440,8 +444,8 @@
       rows.length >= MAX_CANDIDATES
         ? "顯示首 " +
           MAX_CANDIDATES +
-          " 項（可捲動）· 開啟時 Space⇧ 僅確認 · 關閉時 ⇧Space 空格 · Enter Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充"
-        : "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 關閉時 ⇧Space 一般空格 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 拼音中 Caps Lock 暫停擴充";
+          " 項（可捲動）· 開啟時 Space⇧ 僅確認 · 關閉時 ⇧Space 空格 · Enter Tab · 1–9 · Esc＝暫停切換 · 無須鍵入聲調"
+        : "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 關閉時 ⇧Space 一般空格 · Enter / Tab · 1–9 · Esc＝暫停／恢復 · 無須鍵入聲調";
 
     menuOpen = true;
     panelEl.style.display = "flex";
@@ -867,26 +871,36 @@
   }
 
   function onKeyDown(e) {
-    if (e.code === "CapsLock") {
-      if (imeEnabled) {
-        var act = document.activeElement;
-        if (act && isTextField(act)) syncBufferFromField(act);
-        var inComposition =
-          menuOpen ||
-          (act && isTextField(act) && fieldState(act).buffer.length > 0);
-        if (inComposition) {
-          imeEnabled = false;
-          chrome.storage.local.set({ imeEnabled: false });
-          if (act && isTextField(act)) resetState(act);
-          hideMenu();
-        }
+    if (!imeEnabled) return;
+
+    /**
+     * Escape in a text field toggles extension pause (normal typing ↔ Jyutcitzi).
+     * Runs before the paused guard so a second Esc resumes. Consumes the key.
+     */
+    if (e.key === "Escape" && isTextField(e.target)) {
+      extensionPaused = !extensionPaused;
+      if (menuOpen && menuField && isTextField(menuField)) {
+        resetState(menuField);
+      } else if (menuOpen) {
+        hideMenu();
+      }
+      var escAct = document.activeElement;
+      if (escAct && isTextField(escAct)) resetState(escAct);
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      return;
+    }
+
+    if (extensionPaused) {
+      if (menuOpen && menuField && isTextField(menuField)) {
+        resetState(menuField);
+      } else if (menuOpen) {
+        hideMenu();
       }
       return;
     }
 
     if (!isTextField(e.target)) return;
-
-    if (!imeEnabled) return;
 
     if (!ready) {
       if (loadError && e.key === "F12") return;
@@ -985,21 +999,6 @@
         commitPick(el, menuHighlight);
         return;
       }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        hideMenu();
-        return;
-      }
-    }
-
-    if (e.key === "Escape") {
-      if (st.buffer.length) {
-        e.preventDefault();
-        var pos = el.selectionStart;
-        deleteRange(el, pos - st.buffer.length, pos);
-        resetState(el);
-      }
-      return;
     }
 
     if (e.key === "Backspace") {
@@ -1121,6 +1120,7 @@
     if (changes.imeEnabled) {
       imeEnabled = changes.imeEnabled.newValue !== false;
       if (!imeEnabled) {
+        extensionPaused = false;
         hideMenu();
         var a = document.activeElement;
         if (a && isTextField(a)) resetState(a);

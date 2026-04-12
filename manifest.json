@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jyutcitzi",
-  "version": "1.5.2",
+  "version": "1.5.6",
   "description": "Type Jyutping keys from jyutcitzi-RIME dictionaries; inserts web or font Jyutcitzi output in text fields. Applies a font layer for Jyutcitzi glyphs where present (visual rendering only; no page content changes). Optional global rendering mode applies only to Jyutcitzi private-use characters and may be disabled per user preference if conflicts occur on specific sites.",
   "icons": {
     "16": "icons/icon16.png",
