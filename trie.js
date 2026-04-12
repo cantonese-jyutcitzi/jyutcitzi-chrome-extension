@@ -37,6 +37,19 @@
     return node;
   };
 
+  /** Longest prefix of s that exists as a path from root (not necessarily terminal). */
+  JyutcitziTrie.prototype.longestPrefix = function (s) {
+    var node = this.root;
+    var end = 0;
+    for (var i = 0; i < s.length; i++) {
+      var next = node.children[s[i]];
+      if (!next) break;
+      node = next;
+      end = i + 1;
+    }
+    return s.slice(0, end);
+  };
+
   JyutcitziTrie.prototype.hasChildFromRoot = function (ch) {
     return !!this.root.children[ch];
   };
