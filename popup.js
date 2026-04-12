@@ -15,7 +15,11 @@ document.addEventListener("DOMContentLoaded", function () {
   var imeCb = document.getElementById("imeEnabled");
   if (imeCb) {
     imeCb.addEventListener("change", function () {
-      chrome.storage.local.set({ imeEnabled: imeCb.checked });
+      if (imeCb.checked) {
+        chrome.storage.local.set({ imeEnabled: true });
+      } else {
+        chrome.storage.local.set({ imeEnabled: false, extensionPaused: false });
+      }
     });
   }
 

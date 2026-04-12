@@ -1,0 +1,12 @@
+---
+description: Increment manifest.json version whenever the Chrome extension changes
+alwaysApply: true
+---
+
+# Manifest version
+
+Whenever you change anything that ships in the extension (for example `manifest.json`, `background.js`, `content.js`, `popup.html`, `popup.js`, `parser.js`, `trie.js`, files under `icons/`, `fonts/`, or bundled `yaml/` references), **increment the patch number** in `manifest.json` (`version` field, `x.y.z` → bump `z` by 1) in the **same** change set.
+
+If the user specifies an exact version, use that instead.
+
+Do **not** bump the version for README-only or other non-shipping docs unless the user asks.

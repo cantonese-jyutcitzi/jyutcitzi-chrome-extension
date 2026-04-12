@@ -144,6 +144,54 @@
     return false;
   }
 
+  /**
+   * Broader than isTextField: Escape toggles pause for these (shadow DOM, email, etc.).
+   * IME key handling still uses isTextField only.
+   */
+  function isPauseToggleField(el) {
+    if (!el || el.disabled || el.readOnly) return false;
+    var tag = el.tagName;
+    if (tag === "TEXTAREA") return true;
+    if (tag === "INPUT") {
+      var ty = (el.type || "").toLowerCase();
+      return (
+        ty === "text" ||
+        ty === "search" ||
+        ty === "" ||
+        ty === "email" ||
+        ty === "url" ||
+        ty === "tel" ||
+        ty === "password" ||
+        ty === "number"
+      );
+    }
+    return false;
+  }
+
+  function resolvePauseToggleField(e) {
+    if (isPauseToggleField(e.target)) return e.target;
+    var path = e.composedPath && e.composedPath();
+    if (path) {
+      var i;
+      for (i = 0; i < path.length; i++) {
+        if (isPauseToggleField(path[i])) return path[i];
+      }
+    }
+    var a = document.activeElement;
+    if (isPauseToggleField(a)) return a;
+    return null;
+  }
+
+  function notifyToolbarIconSync() {
+    try {
+      chrome.runtime.sendMessage({ type: "jyutcitziSyncToolbarIcon" }, function () {
+        void chrome.runtime.lastError;
+      });
+    } catch (err) {
+      /* ignore */
+    }
+  }
+
   function ensureMenuUi() {
     if (hostEl) return;
 
@@ -877,8 +925,10 @@
      * Escape in a text field toggles extension pause (normal typing ↔ Jyutcitzi).
      * Runs before the paused guard so a second Esc resumes. Consumes the key.
      */
-    if (e.key === "Escape" && isTextField(e.target)) {
+    if (e.key === "Escape" && resolvePauseToggleField(e)) {
       extensionPaused = !extensionPaused;
+      chrome.storage.local.set({ extensionPaused: extensionPaused });
+      notifyToolbarIconSync();
       if (menuOpen && menuField && isTextField(menuField)) {
         resetState(menuField);
       } else if (menuOpen) {
@@ -1121,9 +1171,19 @@
       imeEnabled = changes.imeEnabled.newValue !== false;
       if (!imeEnabled) {
         extensionPaused = false;
+        chrome.storage.local.set({ extensionPaused: false });
+        notifyToolbarIconSync();
         hideMenu();
         var a = document.activeElement;
         if (a && isTextField(a)) resetState(a);
+      }
+    }
+    if (changes.extensionPaused) {
+      extensionPaused = changes.extensionPaused.newValue === true;
+      if (extensionPaused) {
+        hideMenu();
+        var ap = document.activeElement;
+        if (ap && isTextField(ap)) resetState(ap);
       }
     }
     if (changes.globalPuaFontRendering) {
@@ -1138,10 +1198,15 @@
   });
 
   chrome.storage.local.get(
-    { imeEnabled: true, globalPuaFontRendering: false },
+    {
+      imeEnabled: true,
+      globalPuaFontRendering: false,
+      extensionPaused: false,
+    },
     function (r) {
       imeEnabled = r.imeEnabled !== false;
       globalPuaFontRendering = r.globalPuaFontRendering === true;
+      extensionPaused = imeEnabled && r.extensionPaused === true;
       syncGlobalPuaRenderingStyle();
     },
   );
