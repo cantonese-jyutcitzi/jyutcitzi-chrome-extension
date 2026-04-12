@@ -12,10 +12,9 @@
   /** When false, keys pass through (popup). */
   var imeEnabled = true;
   /**
-   * Toggled on each Caps Lock keypress: while true, Jyutcitzi does not intercept
-   * (independent of OS Caps Lock LED).
+   * Toggled on each Escape in a text field: while true, Jyutcitzi does not intercept.
    */
-  var capsPaused = false;
+  var extensionPaused = false;
 
   var stateMap = new WeakMap();
 
@@ -232,7 +231,7 @@
     hintEl = document.createElement("div");
     hintEl.className = "jtc-hint";
     hintEl.textContent =
-      "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 面板關閉時 ⇧Space 輸入一般空格並結束組字 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 按 Caps Lock 鍵切換暫停／恢復組字";
+      "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 面板關閉時 ⇧Space 輸入一般空格並結束組字 · Enter / Tab · 1–9 · Esc＝暫停／恢復擴充 · 無須鍵入聲調";
 
     listEl = document.createElement("div");
     listEl.className = "jtc-list";
@@ -445,8 +444,8 @@
       rows.length >= MAX_CANDIDATES
         ? "顯示首 " +
           MAX_CANDIDATES +
-          " 項（可捲動）· 開啟時 Space⇧ 僅確認 · 關閉時 ⇧Space 空格 · Enter Tab · 1–9 · Esc · 無須鍵入聲調 · Caps Lock＝切換暫停"
-        : "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 關閉時 ⇧Space 一般空格 · Enter / Tab · 1–9 · Esc · 無須鍵入聲調 · 按 Caps Lock 切換暫停／恢復";
+          " 項（可捲動）· 開啟時 Space⇧ 僅確認 · 關閉時 ⇧Space 空格 · Enter Tab · 1–9 · Esc＝暫停切換 · 無須鍵入聲調"
+        : "↑↓ 選擇 · 面板開啟時 Space（含 ⇧）僅確認 · 關閉時 ⇧Space 一般空格 · Enter / Tab · 1–9 · Esc＝暫停／恢復 · 無須鍵入聲調";
 
     menuOpen = true;
     panelEl.style.display = "flex";
@@ -875,22 +874,24 @@
     if (!imeEnabled) return;
 
     /**
-     * Each Caps Lock keypress toggles pause: Jyutcitzi off → on → off …
-     * Clears panel / buffer for the focused field; does not intercept the key.
+     * Escape in a text field toggles extension pause (normal typing ↔ Jyutcitzi).
+     * Runs before the paused guard so a second Esc resumes. Consumes the key.
      */
-    if (e.code === "CapsLock") {
-      capsPaused = !capsPaused;
+    if (e.key === "Escape" && isTextField(e.target)) {
+      extensionPaused = !extensionPaused;
       if (menuOpen && menuField && isTextField(menuField)) {
         resetState(menuField);
       } else if (menuOpen) {
         hideMenu();
       }
-      var capAct = document.activeElement;
-      if (capAct && isTextField(capAct)) resetState(capAct);
+      var escAct = document.activeElement;
+      if (escAct && isTextField(escAct)) resetState(escAct);
+      e.preventDefault();
+      e.stopImmediatePropagation();
       return;
     }
 
-    if (capsPaused) {
+    if (extensionPaused) {
       if (menuOpen && menuField && isTextField(menuField)) {
         resetState(menuField);
       } else if (menuOpen) {
@@ -998,21 +999,6 @@
         commitPick(el, menuHighlight);
         return;
       }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        hideMenu();
-        return;
-      }
-    }
-
-    if (e.key === "Escape") {
-      if (st.buffer.length) {
-        e.preventDefault();
-        var pos = el.selectionStart;
-        deleteRange(el, pos - st.buffer.length, pos);
-        resetState(el);
-      }
-      return;
     }
 
     if (e.key === "Backspace") {
@@ -1134,7 +1120,7 @@
     if (changes.imeEnabled) {
       imeEnabled = changes.imeEnabled.newValue !== false;
       if (!imeEnabled) {
-        capsPaused = false;
+        extensionPaused = false;
         hideMenu();
         var a = document.activeElement;
         if (a && isTextField(a)) resetState(a);

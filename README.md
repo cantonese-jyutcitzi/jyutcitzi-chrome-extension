@@ -59,9 +59,8 @@ Focus a page `input`/`textarea`, type letters; the candidate panel should appear
 | **Shift+Space** | When the panel is **closed** and you still have a pending buffer: insert a normal space and end that composition. |
 | **Enter** / **Tab** | Confirm highlighted candidate when the panel is open. |
 | **1–9** | Pick rows 1–9. |
-| **Esc** | Close the panel, or clear the pending buffer if the panel is already closed. |
 | **Backspace** | Deletes within the pending buffer. |
-| **Caps Lock** | **Each press** of the Caps Lock key **toggles** Jyutcitzi pause for this tab: paused means keys are not intercepted (normal typing). Press again to resume. Panel/buffer are cleared when you toggle. Independent of the OS Caps Lock indicator. |
+| **Escape** | In a focused **text field**, **each press** toggles pause (normal typing ↔ Jyutcitzi). The key is consumed (`preventDefault`). Press again to resume. Panel and composition buffer are cleared on each toggle. |
 
 You can type **without tones** in many cases; tone variants often appear as separate rows. Longer phrases in the YAML use **spaces** in the key; the extension also matches **concatenated** toneless input where possible. If the full string has **no** dictionary key, the extension may offer **segmented** rows (first syllable from your last highlight or top weight, second syllable from the remainder) — a lightweight stand-in for RIME-style carry, not a full segmenter.
 
