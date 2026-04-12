@@ -1,305 +1,122 @@
-Jyutcitzi Chrome extension — direct YAML lookup (canonical plan)
+# Jyutcitzi (Chrome extension)
 
-## Install (unpacked)
+Type Jyutping-style keys in normal web **`<input>`** and **`<textarea>`** fields. The extension loads the bundled Jyutcitzi RIME dictionaries as flat lookup tables, shows a **candidate panel** with previews, and replaces your typed Latin buffer with the chosen entry’s output (web-style characters or private-use font glyphs, depending on mode).
 
-1. Ensure dictionaries are present: the whole **`yaml/`** directory must live next to `manifest.json` (files or symlinks). Run `git submodule update --init --recursive` if you use a submodule for RIME data.
-2. Chrome → **Extensions** → enable **Developer mode** → **Load unpacked** → choose the **folder that contains `manifest.json`** (not a parent directory).
-3. Optional: use the toolbar popup to switch **Web** vs **Font** dictionary output, toggle **Enable Jyutcitzi in text fields**, or (under Advanced) **Global PUA glyph rendering**.
-4. Focus a normal `input` or `textarea`, type Jyutping letters. A **scrollable candidate panel** appears under the field (up to 800 matches). **↑↓** move, **Enter** / **Tab** confirm, **1–9** pick the first nine, **Esc** closes the panel (or clears the pending buffer if the panel is already closed). If the key is unique with no longer matches, it may commit immediately without needing the panel.
-
-### Packing / Chrome Web Store zip
-
-The extension loads dictionaries with `fetch(chrome.runtime.getURL("yaml/…"))`. Your **`.zip` must include the entire `yaml/` tree** (all `.dict.yaml` files the extension expects). If `yaml/` is missing from the zip, the lexicon never loads (`[Jyutcitzi] load failed` in the page console) and neither replacement nor the dropdown will work.
-
-Do **not** rely on `.gitignore` when zipping: confirm the archive actually contains `yaml/jyutcitzi_web.dict.yaml` etc. before upload.
-
-### Candidate panel fonts (Jyutcitzi glyphs)
-
-The dropdown preview uses **`fonts/JyutcitziWithSourceHanSansHCRegular.ttf`**, a symlink to  
-`submodules/jyutcitzi-fonts/SourceHanSansHC/JyutcitziWithSourceHanSansHCRegular.ttf`  
-(Jyutcitzi composed forms merged into Source Han Sans HC). Run `git submodule update --init --recursive` so `submodules/jyutcitzi-fonts` is populated.
-
-Packaged zips must include **`fonts/*.ttf`** as well as `yaml/`, or previews will fall back to tofu boxes.
-
-### Global PUA glyph rendering (optional, default off)
-
-In the toolbar popup, **Advanced → Global PUA glyph rendering** is **off** until you enable it. When on, the content script injects a stylesheet that:
-
-1. Declares a separate `@font-face` family (`JyutcitziPUAFallback`) pointing at the same bundled TTF, with **`unicode-range`** limited to private-use areas (BMP `U+E000–F8FF` and supplementary PUA planes). That makes the extension act as a **font fallback provider**: normal Latin and most CJK keep the page’s usual faces; only codepoints in those ranges can be drawn from the Jyutcitzi font.
-2. Appends that family at the end of a system UI `font-family` stack on most elements, with exclusions for `code`, `pre`, `kbd`, `samp`, `tt`, and elements whose `class` contains `icon` (heuristic—some icon systems will still slip through).
-
-This is **visual only** (no DOM text changes). It is most useful when the popup **Font (PUA glyphs)** output mode is selected, so text you type uses private-use codepoints that would otherwise show as tofu.
-
-**Caveat:** BMP private-use overlaps some sites’ icon fonts. If icons break on a site, turn global rendering off; a per-site blocklist could be added later. Narrowing `unicode-range` from the font’s `cmap` is another possible follow-up if needed.
+This is **not** a full RIME/Squirrel port: there is no separate RIME engine, only dictionary lookup, prefix/toneless matching, and a small amount of auxiliary logic when the whole string has no YAML key.
 
 ---
 
-One-sentence goal
+## Install (unpacked)
 
-Build a minimal Chrome extension that directly consumes the existing Jyutcitzi RIME YAML dictionaries and performs raw input-string → output-string substitution in browser text fields. The extension will not implement phonology, parsing, glyph composition, schema transpilation, or a separate IME logic layer. It treats the YAML dictionaries as the complete canonical mapping source. At runtime it maintains a typed buffer, checks that buffer against the dictionary key set and prefix set derived from the YAML files, and replaces matching romanized input with the corresponding Jyutcitzi output from the selected dictionary family (jyutcitzi*web* or jyutcitzi*font*). Initial scope is **inputandtextarea; **contenteditable is deferred. This architecture is \*\*intentionally dumb, direct, and faithful to the existing YAML.
+### 1. Get the repo and data
 
-Product goal (checklist)
+```bash
+git clone <repository-url>
+cd jyutcitzi-chrome-extension
+git submodule update --init --recursive
+```
 
-Load existing Jyutcitzi YAML dictionary files.
+Submodules supply optional assets (e.g. fonts under `submodules/jyutcitzi-fonts/`). The extension **must** still have a complete **`yaml/`** directory beside `manifest.json` (copied or symlinked RIME `*.dict.yaml` files). Without `yaml/`, the lexicon never loads.
 
-Read them as raw lookup tables (no RIME engine).
+### 2. Preview font (recommended)
 
-Watch user typing in text fields.
+The candidate panel uses **`fonts/JyutcitziWithSourceHanSansHCRegular.ttf`**. If that file is missing, previews may show replacement boxes. Ensure the font file exists (copy or symlink from your Jyutcitzi font build, or from `submodules/jyutcitzi-fonts` if you use that layout).
 
-Match the current Latin buffer against dictionary keys.
+### 3. Load in Chrome
 
-Replace the typed key sequence with the mapped Jyutcitzi output.
+1. Open **`chrome://extensions`**.
+2. Turn **Developer mode** on.
+3. Click **Load unpacked**.
+4. Select the **folder that contains `manifest.json`** (the extension root), not a parent directory.
 
-Output web-form or font-form Jyutcitzi depending on which dictionary bundle is selected.
+### 4. First run
 
-That is the whole product for this track.
+Open the extension **toolbar popup**:
 
-Architecture
+- **Web** vs **Font** — which dictionary bundle and output form to use.
+- **Enable Jyutcitzi in text fields** — master switch for interception.
+- **Global PUA glyph rendering** (optional) — see below.
 
-keystrokes
-→ raw buffer
-→ direct dictionary lookup against existing YAML entries
-→ if exact match: replace typed text with mapped Jyutcitzi output
-→ if current buffer is a prefix of a longer key: wait
-→ if buffer no longer matches anything: flush/reset (with last-exact fallback when implemented)
+Focus a page `input`/`textarea`, type letters; the candidate panel should appear when there are matches.
 
-No Jyutping parser (as a phonology module).
+---
 
-No phonology engine.
+## Packing a `.zip` (e.g. Chrome Web Store)
 
-No syllable analysis.
+- Include the **entire `yaml/`** tree the runtime loads (see [Bundled dictionary files](#bundled-dictionary-files)).
+- Include **`fonts/*.ttf`** if you ship previews.
+- Do **not** assume `.gitignore` is enough: open the zip and confirm paths like `yaml/jyutcitzi_web.dict.yaml` exist. If `yaml/` is missing, the console will show load errors and nothing will work.
 
-No composer.
+---
 
-No generated intermediate schema / transpilation project.
+## Usage
 
-No phase-2 candidate bar in v1.
+| Action | Behavior |
+|--------|----------|
+| Type `a–z` (and digits if you use toned keys) | Builds a composition buffer; panel lists matches (literal + tone-stripped + fallbacks). |
+| **↑** / **↓** | Move highlight in the panel. |
+| **Space** | While the panel is open: **confirm** the highlighted row (plain and Shift+Space both confirm — no literal space is inserted with the panel open). |
+| **Shift+Space** | When the panel is **closed** and you still have a pending buffer: insert a normal space and end that composition. |
+| **Enter** / **Tab** | Confirm highlighted candidate when the panel is open. |
+| **1–9** | Pick rows 1–9. |
+| **Esc** | Close the panel, or clear the pending buffer if the panel is already closed. |
+| **Backspace** | Deletes within the pending buffer. |
+| **Caps Lock** | While composing: disables the extension for that session (same as turning it off in the popup). |
 
-No SVG rendering project.
+You can type **without tones** in many cases; tone variants often appear as separate rows. Longer phrases in the YAML use **spaces** in the key; the extension also matches **concatenated** toneless input where possible. If the full string has **no** dictionary key, the extension may offer **segmented** rows (first syllable from your last highlight or top weight, second syllable from the remainder) — a lightweight stand-in for RIME-style carry, not a full segmenter.
 
-flowchart LR
-keys[keystrokes]
-buf[raw buffer]
-yaml[YAML dict rows]
-lut[lookup map]
-pfx[prefix index]
-rep[replace in field]
-yaml --> lut
-keys --> buf
-buf --> lut
-buf --> pfx
-lut --> rep
-pfx --> rep
+---
 
-Canonical files (packaged under yaml/)
+## Global PUA glyph rendering (optional)
 
-Web output mode (default)
+When **Font** output mode writes private-use codepoints, pages may show tofu unless a font covers those ranges. If you enable **Global PUA glyph rendering**, the content script injects a stylesheet that registers the bundled TTF as a **fallback** family scoped with **`unicode-range`** to PUA blocks, and appends it to a broad `font-family` stack (with simple exclusions for `code`, `pre`, and common icon-class heuristics).
 
-jyutcitzi_web.dict.yaml
+This only affects **rendering**, not stored text. If a site’s icons break, turn the option off.
 
-jyutcitzi_web.lettered.dict.yaml
+---
 
-jyutcitzi_web.compound.dict.yaml
+## Bundled dictionary files
 
-jyutcitzi_web.jyutcit_phrases.dict.yaml
+Loaded at runtime from `yaml/` (see `parser.js`):
 
-jyutcitzi_web.phrase.dict.yaml
+**Web mode**
 
-jyutcitzi_web.schema.yaml (reference for which dicts exist; not executed as RIME at runtime)
+- `jyutcitzi_web.dict.yaml`
+- `jyutcitzi_web.lettered.dict.yaml`
+- `jyutcitzi_web.compound.dict.yaml`
+- `jyutcitzi_web.jyutcit_phrases.dict.yaml`
+- `jyutcitzi_core.lettered.dict.yaml`
 
-Font output mode
+**Font mode**
 
-jyutcitzi_font.dict.yaml
+- `jyutcitzi_font.dict.yaml`
+- `jyutcitzi_font.lettered.dict.yaml`
+- `jyutcitzi_font.compound.dict.yaml`
+- `jyutcitzi_font.jyutcit_phrases.dict.yaml`
+- `jyutcitzi_core.lettered.dict.yaml`
 
-jyutcitzi_font.lettered.dict.yaml
+Rows are read as RIME table lines after the `...` header: `output<TAB>input<TAB>weight`.
 
-jyutcitzi_font.compound.dict.yaml
+---
 
-jyutcitzi_font.jyutcit_phrases.dict.yaml
+## Project layout (main pieces)
 
-jyutcitzi_font.phrase.dict.yaml
+```
+manifest.json
+content.js      # IME UI, buffer, keys, commit
+parser.js       # fetch + parse dict YAML → Map
+trie.js         # prefix trie for keys
+popup.html/js   # options
+yaml/           # dictionary bundle (required)
+fonts/          # preview TTF (recommended)
+vendor/         # js-yaml
+```
 
-jyutcitzi_font.schema.yaml
+---
 
-default.custom.yaml (where you maintain it) shows active schemas include jyutcitzi_web and jyutcitzi_font — aligns with the two-mode plan.
+## Scope
 
-Runtime modes
+- **Supported:** `input` / `textarea` on ordinary pages (subject to site focus/event quirks).
+- **Not in scope here:** `contenteditable`, a full RIME engine, or linguistic Jyutping parsing beyond what the YAML keys already encode.
 
-Mode A (web): jyutcitzi_web — outputs visible Jyutcitzi-style strings (e.g. entries like web output for baa1).
-
-Mode B (font): jyutcitzi_font — outputs font glyph characters for the same keys.
-
-Default: web mode unless you know the target page uses the font.
-
-Minimal repo layout
-
-chrome-extension-jyutcitzi/
-├── manifest.json
-├── content.js # typing hook, buffer, commit/replace rules
-├── parser.js # YAML dict reader + row extraction only
-├── trie.js # optional but small — prefix / exact support
-├── yaml/
-│ ├── jyutcitzi_web.dict.yaml
-│ ├── jyutcitzi_web.lettered.dict.yaml
-│ ├── jyutcitzi_web.compound.dict.yaml
-│ ├── jyutcitzi_web.jyutcit_phrases.dict.yaml
-│ ├── jyutcitzi_web.phrase.dict.yaml
-│ ├── jyutcitzi_font.dict.yaml
-│ ├── jyutcitzi_font.lettered.dict.yaml
-│ ├── jyutcitzi_font.compound.dict.yaml
-│ ├── jyutcitzi_font.jyutcit_phrases.dict.yaml
-│ ├── jyutcitzi_font.phrase.dict.yaml
-│ └── ...
-├── vendor/
-│ └── js-yaml.min.js
-└── README.md
-
-No TypeScript required.
-
-No bundler required.
-
-No build system unless you add one later.
-
-Implementation logic
-
-Step 1 — Load YAML as-is
-
-At extension startup, read all chosen YAML files and extract RIME dict rows:
-
-OUTPUT<TAB>INPUT<TAB>WEIGHT
-
-Examples already in your data:
-
-output for single syllable key baa1
-
-output for phrase key aa1 ban6
-
-Invert into:
-
-lookup[input] = output;
-
-That is the entire data model. parser.js is only file format + YAML parsing, not linguistic parsing.
-
-Step 2 — Prefix set
-
-From every input key, register prefixes so longer phrase keys do not get cut off.
-
-Example keys:
-
-aa1
-
-aa1 ban6
-
-aa1 pin3 mau6 jik6
-
-Then aa1 is an exact key; aa1 (with space) is a prefix path; aa1 ban6 is an exact key, etc. — implement concretely to match how keys appear in the dicts.
-
-Step 3 — Capture typing
-
-For input, textarea, and optionally later contenteditable: append allowed keypresses to a buffer (including spaces for phrase keys).
-
-Step 4 — Lookup policy
-
-On each keypress:
-
-Exact match and also prefix of a longer key → wait until more input (or delimiter rule) resolves ambiguity.
-
-Exact match and not a prefix → replace immediately.
-
-Prefix only → wait.
-
-Neither exact nor prefix → fall back to last exact match if you track one; otherwise reset buffer.
-
-Step 5 — Replacement
-
-Replace the typed Latin sequence in the active field with lookup[buffer] (for the committed key). Manage caret (selectionStart / selectionEnd for native fields).
-
-Scope: ship today vs later
-
-Must-have (today)
-
-input, textarea
-
-Web mode (jyutcitzi_web)
-
-Exact / prefix matching
-
-Backspace
-
-Space-separated phrase input
-
-Plain text field replacement
-
-Can wait
-
-contenteditable
-
-Font mode toggle
-
-Popup UI, site exclusions, hotkey toggle, settings sync
-
-Delivery phases
-
-Phase
-
-Deliverable
-
-1
-
-Loads jyutcitzi_web; maps romanization to Jyutcitzi; phrases; works in normal text inputs
-
-2
-
-Same codepath; add jyutcitzi_font as alternate output mode
-
-3
-
-contenteditable and hostile-site handling
-
-Explicit non-goals
-
-The extension will not:
-
-parse Jyutping as phonology
-
-infer syllables
-
-normalize tones beyond what keys already are
-
-generate glyphs or compose radicals
-
-reinterpret YAML semantics
-
-rebuild RIME
-
-invent separate candidate semantics (only exact/prefix timing, not ranking UI in v1)
-
-It only uses the YAML mappings you already have.
-
-Rejected / out of scope (do not add to this plan)
-
-These were wrong for this product and must not reappear:
-
-jyutpingParser.ts / INITIALS-FINALS phonology tables
-
-composer.ts / PUA mapping stubs as a composition layer
-
-“validate body against VALID_SYLLABLES”
-
-Syllable → string as a core type
-
-schema.json extraction / schema transpilation pipelines
-
-“RIME-lite candidate engine”
-
-“future SVG composer” as part of core architecture
-
-Note: parser.js here means YAML + dict row extraction, not Jyutping linguistic parsing.
-
-Optional follow-up (execution)
-
-A literal file-by-file checklist: manifest.json script order, parser.js row extraction for real \*.dict.yaml structure, and content.js replacement snippet.
-
-Repo note
-
-The workspace may currently only have [README.md](/Users/hongjan/Documents/chrome-extension-jyutcitzi/README.md) until YAML files are added under yaml/.
+If something fails on a specific site, check the page **console** for `[Jyutcitzi]` messages and confirm `yaml/` and `fonts/` are present in the loaded extension directory.
