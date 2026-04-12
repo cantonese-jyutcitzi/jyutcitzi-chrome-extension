@@ -8,62 +8,8 @@ This is **not** a full RIME/Squirrel port: there is no separate RIME engine, onl
 
 ## Install
 
-### A. Download the ZIP (easiest)
-
-1. Open **[Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases)** for this repo.
-2. Download the latest **`.zip`** attached to the release (e.g. `jyutcitzi-chrome-extension-v….zip`).
-   - That zip is meant to include **`manifest.json`**, the full **`yaml/`** folder, **`fonts/`**, scripts, etc. Chrome will not load a zip that is missing `yaml/`.
-3. **Extract** the zip somewhere permanent (Desktop, `Documents`, …). You must end up with a **folder** that **directly contains** `manifest.json` and a **`yaml`** subfolder.
-   - **Wrong:** pointing Chrome at the `.zip` file.
-   - **Wrong:** choosing a parent folder so Chrome does not see `manifest.json`.
-   - **Right:** select the **inner** folder that looks like the project root (same level as `manifest.json`).
-4. [Load in Chrome](#load-in-chrome) (same steps as for a git clone).
-
-**Sanity check before Load unpacked:** open the folder you’re about to select. You should see `manifest.json`, `content.js`, `yaml/`, etc. If `yaml/` is missing or empty, the extension will not work—use a release zip or see [From git](#b-from-git-developers) below.
-
-**GitHub “Code → Download ZIP”** on the main repo page often **does not** fill git submodules; you can get an incomplete tree. Prefer a **Release** zip, or clone with submodules.
-
-### B. From git (developers)
-
-```bash
-git clone https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension.git
-cd jyutcitzi-chrome-extension
-git submodule update --init --recursive
-```
-
-Submodules supply fonts and any linked RIME data; the runtime still requires a populated **`yaml/`** next to `manifest.json`. Then [Load in Chrome](#load-in-chrome).
-
-### Load in Chrome
-
-1. Open **`chrome://extensions`**.
-2. Turn **Developer mode** on.
-3. Click **Load unpacked**.
-4. Select the **folder that contains `manifest.json`** (the extension root), not a parent directory.
-
-### Preview font
-
-The panel uses **`fonts/JyutcitziWithSourceHanSansHCRegular.ttf`**. If it’s missing, previews may be tofu boxes; release zips should include it.
-
-### First run
-
-Open the extension **toolbar popup**:
-
-- **Web** vs **Font** — dictionary bundle and output form.
-- **Enable Jyutcitzi in text fields** — master switch.
-- **Global PUA glyph rendering** (optional) — see below.
-
-Focus a page **`input`** / **`textarea`**, type letters; the candidate panel should show when there are matches.
-
----
-
-## Packing a `.zip` (for maintainers / Chrome Web Store)
-
-When you cut a release, attach a zip that already contains:
-
-- The **entire `yaml/`** tree (see [Bundled dictionary files](#bundled-dictionary-files)).
-- **`fonts/*.ttf`** for previews.
-
-Open your zip and confirm **`yaml/jyutcitzi_web.dict.yaml`** (and siblings) exist. Do **not** rely on `.gitignore` when building the archive—missing `yaml/` means a broken install for everyone who only downloads the zip.
+1. **[Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases)** → download the latest **`.zip`**, then unzip it.
+2. Open **`chrome://extensions`**, turn **Developer mode** on, click **Load unpacked**, and select the **folder that contains `manifest.json`** (not the zip file, not a parent folder).
 
 ---
 
@@ -137,4 +83,3 @@ vendor/         # js-yaml
 - **Not in scope here:** `contenteditable`, a full RIME engine, or linguistic Jyutping parsing beyond what the YAML keys already encode.
 
 If something fails on a specific site, check the page **console** for `[Jyutcitzi]` messages and confirm `yaml/` and `fonts/` are present in the loaded extension directory.
-No i
