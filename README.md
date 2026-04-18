@@ -26,13 +26,15 @@ This is **not** a full RIME/Squirrel port: there is no separate RIME engine, onl
 | **Backspace**                                 | Deletes within the pending buffer.                                                                                                                                                                             |
 | **Escape**                                    | In a focused **text field**, **each press** toggles pause (normal typing ↔ Jyutcitzi). The key is consumed (`preventDefault`). Press again to resume. Panel and composition buffer are cleared on each toggle. |
 
+**Toolbar icon:** grey = extension off; **green** = Jyutcitzi on (intercepting keys); **pink** = on but **paused** (normal keyboard; press Esc in a text field again to resume).
+
 You can type **without tones** in many cases; tone variants often appear as separate rows. Longer phrases in the YAML use **spaces** in the key; the extension also matches **concatenated** toneless input where possible. If the full string has **no** dictionary key, the extension may offer **segmented** rows (first syllable from your last highlight or top weight, second syllable from the remainder) — a lightweight stand-in for RIME-style carry, not a full segmenter.
 
 ---
 
-## Global PUA glyph rendering (optional)
+## Global PUA glyph rendering
 
-When **Font** output mode writes private-use codepoints, pages may show tofu unless a font covers those ranges. If you enable **Global PUA glyph rendering**, the content script injects a stylesheet that registers the bundled TTF as a **fallback** family scoped with **`unicode-range`** to PUA blocks, and appends it to a broad `font-family` stack (with simple exclusions for `code`, `pre`, and common icon-class heuristics).
+**Font** output mode writes private-use codepoints; pages may show tofu unless a font covers those ranges. **Global PUA glyph rendering** is **on by default** for new installs: the content script injects a stylesheet that registers the bundled TTF as a **fallback** family scoped with **`unicode-range`** to PUA blocks, and appends it to a broad `font-family` stack (with simple exclusions for `code`, `pre`, and common icon-class heuristics). Turn it off in the popup if you prefer not to inject that stack.
 
 This only affects **rendering**, not stored text. If a site’s icons break, turn the option off.
 
@@ -83,3 +85,8 @@ vendor/         # js-yaml
 - **Not in scope here:** `contenteditable`, a full RIME engine, or linguistic Jyutping parsing beyond what the YAML keys already encode.
 
 If something fails on a specific site, check the page **console** for `[Jyutcitzi]` messages and confirm `yaml/` and `fonts/` are present in the loaded extension directory.
+
+### Troubleshooting
+
+- If the console shows **`Extension context invalidated`**, you reloaded or updated the extension while this tab was still open. **Reload the tab** (refresh the page); open tabs keep the old content script until then.
+- After **Load unpacked** or **Reload** on `chrome://extensions`, refresh any tabs where you want to use the IME.

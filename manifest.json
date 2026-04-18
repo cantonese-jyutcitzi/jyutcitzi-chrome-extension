@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Jyutcitzi",
-  "version": "1.5.9",
-  "description": "Jyutping-style typing in inputs and text areas. Web or Jyutcitzi PUA output; optional global PUA rendering. RIME dicts.",
+  "version": "1.5.11",
+  "description": "Jyutping-style typing in inputs and text areas. Font (PUA) or web output; global PUA rendering on by default. RIME dicts.",
   "icons": {
     "16": "icons/icon128.png",
     "32": "icons/icon128.png",

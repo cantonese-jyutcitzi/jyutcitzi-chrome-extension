@@ -48,15 +48,15 @@
     <label><input type="checkbox" id="imeEnabled" /> Enable Jyutcitzi in text fields</label>
     <p class="hint">Uncheck to always use normal typing. When enabled, <strong>Escape</strong> in a text field toggles Jyutcitzi on/off for this tab (paused = normal keyboard only). Press Esc again to resume.</p>
     <p class="section-title">Advanced</p>
-    <label><input type="checkbox" id="globalPuaFontRendering" /> Global PUA glyph rendering (optional)</label>
+    <label><input type="checkbox" id="globalPuaFontRendering" /> Global PUA glyph rendering (on by default)</label>
     <p class="warning">
       <strong>Note:</strong> When enabled, a font fallback is applied on this page so Jyutcitzi private-use
       characters can display. The BMP private-use range can overlap some sites’ icon fonts—turn this off if
       icons break. Most useful with <strong>Font (PUA)</strong> output below.
     </p>
     <p>Output dictionary bundle</p>
-    <label><input type="radio" name="mode" value="web" /> Web (禾旡·比`·版)</label>
     <label><input type="radio" name="mode" value="font" /> Font (PUA glyphs)</label>
+    <label><input type="radio" name="mode" value="web" /> Web (禾旡·比`·版)</label>
     <script src="popup.js"></script>
   </body>
 </html>

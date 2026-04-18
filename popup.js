@@ -1,6 +1,6 @@
 document.addEventListener("DOMContentLoaded", function () {
   chrome.storage.local.get(
-    { outputMode: "web", imeEnabled: true, globalPuaFontRendering: false },
+    { outputMode: "font", imeEnabled: true, globalPuaFontRendering: true },
     function (r) {
       var v = r.outputMode === "font" ? "font" : "web";
       var input = document.querySelector('input[name="mode"][value="' + v + '"]');

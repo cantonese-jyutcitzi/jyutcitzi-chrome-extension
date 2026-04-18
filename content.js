@@ -192,6 +192,88 @@
     }
   }
 
+  /** After extension reload/update, this tab's content script cannot use chrome.* until refresh. */
+  var extensionContextDead = false;
+  var invalidationWarned = false;
+
+  function isInvalidatedMessage(msg) {
+    return typeof msg === "string" && msg.indexOf("Extension context invalidated") >= 0;
+  }
+
+  function isInvalidatedError(err) {
+    return err && isInvalidatedMessage(err.message);
+  }
+
+  function warnInvalidatedOnce() {
+    if (invalidationWarned) return;
+    invalidationWarned = true;
+    console.warn(
+      "[Jyutcitzi] Extension context invalidated (extension was reloaded or updated). Reload this tab to use Jyutcitzi again.",
+    );
+  }
+
+  function teardownAfterInvalidation() {
+    if (extensionContextDead) return;
+    extensionContextDead = true;
+    hideMenu();
+    try {
+      chrome.storage.onChanged.removeListener(onStorageChangedForIme);
+    } catch (err) {
+      void err;
+    }
+    window.removeEventListener("keydown", onKeyDown, true);
+    document.removeEventListener("selectionchange", onSelectionChangeForIme);
+    document.removeEventListener("click", onDocumentClickForIme, true);
+    document.removeEventListener("blur", onBlur, true);
+    window.removeEventListener("scroll", onScrollOrResize, true);
+    window.removeEventListener("resize", onScrollOrResize);
+    document.removeEventListener("mousedown", onDocMouseDown, true);
+  }
+
+  function handleInvalidatedContext(err) {
+    if (err && !isInvalidatedError(err)) return false;
+    warnInvalidatedOnce();
+    teardownAfterInvalidation();
+    return true;
+  }
+
+  /**
+   * @returns {boolean} false if sync throw (invalidated); true if API was scheduled
+   */
+  function safeStorageLocalSet(items, callback) {
+    if (extensionContextDead) return false;
+    try {
+      chrome.storage.local.set(items, function () {
+        void chrome.runtime.lastError;
+        var le = chrome.runtime.lastError;
+        if (le && isInvalidatedMessage(le.message)) handleInvalidatedContext(null);
+        if (callback && !extensionContextDead) callback();
+      });
+      return true;
+    } catch (err) {
+      if (isInvalidatedError(err)) handleInvalidatedContext(err);
+      return false;
+    }
+  }
+
+  function safeStorageLocalGet(defaults, callback) {
+    if (extensionContextDead) return;
+    try {
+      chrome.storage.local.get(defaults, function (r) {
+        void chrome.runtime.lastError;
+        var le = chrome.runtime.lastError;
+        if (le && isInvalidatedMessage(le.message)) {
+          handleInvalidatedContext(null);
+          return;
+        }
+        if (extensionContextDead) return;
+        callback(r);
+      });
+    } catch (err) {
+      if (isInvalidatedError(err)) handleInvalidatedContext(err);
+    }
+  }
+
   function ensureMenuUi() {
     if (hostEl) return;
 
@@ -896,12 +978,22 @@
   }
 
   async function loadLexicon() {
+    if (extensionContextDead) return;
     ready = false;
     loadError = null;
     hideMenu();
     tlRoot = null;
     try {
-      var stored = await chrome.storage.local.get({ outputMode: "web" });
+      var stored;
+      try {
+        stored = await chrome.storage.local.get({ outputMode: "font" });
+      } catch (err) {
+        if (isInvalidatedError(err)) {
+          handleInvalidatedContext(err);
+          return;
+        }
+        throw err;
+      }
       var mode = stored.outputMode === "font" ? "font" : "web";
       lookup = await JyutcitziParser.loadDictionaryBundle(mode);
       trie = new JyutcitziTrie();
@@ -919,6 +1011,7 @@
   }
 
   function onKeyDown(e) {
+    if (extensionContextDead) return;
     if (!imeEnabled) return;
 
     /**
@@ -926,8 +1019,9 @@
      * Runs before the paused guard so a second Esc resumes. Consumes the key.
      */
     if (e.key === "Escape" && resolvePauseToggleField(e)) {
-      extensionPaused = !extensionPaused;
-      chrome.storage.local.set({ extensionPaused: extensionPaused });
+      var nextPaused = !extensionPaused;
+      if (!safeStorageLocalSet({ extensionPaused: nextPaused })) return;
+      extensionPaused = nextPaused;
       notifyToolbarIconSync();
       if (menuOpen && menuField && isTextField(menuField)) {
         resetState(menuField);
@@ -1156,6 +1250,7 @@
     if (!isTextField(e.target)) return;
     var field = e.target;
     setTimeout(function () {
+      if (extensionContextDead) return;
       if (ignoreNextFieldBlur) {
         ignoreNextFieldBlur = false;
         return;
@@ -1165,13 +1260,14 @@
     }, 0);
   }
 
-  chrome.storage.onChanged.addListener(function (changes, area) {
+  function onStorageChangedForIme(changes, area) {
+    if (extensionContextDead) return;
     if (area !== "local") return;
     if (changes.imeEnabled) {
       imeEnabled = changes.imeEnabled.newValue !== false;
       if (!imeEnabled) {
         extensionPaused = false;
-        chrome.storage.local.set({ extensionPaused: false });
+        if (!safeStorageLocalSet({ extensionPaused: false })) return;
         notifyToolbarIconSync();
         hideMenu();
         var a = document.activeElement;
@@ -1195,12 +1291,14 @@
         console.error("[Jyutcitzi] reload failed", err);
       });
     }
-  });
+  }
 
-  chrome.storage.local.get(
+  chrome.storage.onChanged.addListener(onStorageChangedForIme);
+
+  safeStorageLocalGet(
     {
       imeEnabled: true,
-      globalPuaFontRendering: false,
+      globalPuaFontRendering: true,
       extensionPaused: false,
     },
     function (r) {
@@ -1211,21 +1309,24 @@
     },
   );
 
-  window.addEventListener("keydown", onKeyDown, true);
-  document.addEventListener("selectionchange", function () {
+  function onSelectionChangeForIme() {
+    if (extensionContextDead) return;
     var a = document.activeElement;
     if (a && isTextField(a)) syncBufferFromField(a);
-  });
-  document.addEventListener(
-    "click",
-    function (e) {
-      if (!isTextField(e.target)) return;
-      requestAnimationFrame(function () {
-        syncBufferFromField(e.target);
-      });
-    },
-    true,
-  );
+  }
+
+  function onDocumentClickForIme(e) {
+    if (extensionContextDead) return;
+    if (!isTextField(e.target)) return;
+    requestAnimationFrame(function () {
+      if (extensionContextDead) return;
+      syncBufferFromField(e.target);
+    });
+  }
+
+  window.addEventListener("keydown", onKeyDown, true);
+  document.addEventListener("selectionchange", onSelectionChangeForIme);
+  document.addEventListener("click", onDocumentClickForIme, true);
   document.addEventListener("blur", onBlur, true);
   window.addEventListener("scroll", onScrollOrResize, true);
   window.addEventListener("resize", onScrollOrResize);
