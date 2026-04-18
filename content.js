@@ -286,7 +286,14 @@
     shadow = hostEl.attachShadow({ mode: "closed" });
 
     var css = document.createElement("style");
+    var panelFontStack =
+      "'" +
+      PREVIEW_FONT_FAMILY +
+      "', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif";
     css.textContent = [
+      ":host {",
+      "  font: 14px/1.35 " + panelFontStack + ";",
+      "}",
       ".jtc-panel {",
       "  position: fixed;",
       "  min-width: 220px;",
@@ -295,9 +302,7 @@
       "  border: 1px solid #888;",
       "  border-radius: 4px;",
       "  box-shadow: 0 6px 24px rgba(0,0,0,.2);",
-      "  font: 14px/1.35 '" +
-        PREVIEW_FONT_FAMILY +
-        "', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;",
+      "  font: inherit;",
       "  color: #111;",
       "  pointer-events: auto;",
       "  overflow: hidden;",
@@ -306,7 +311,7 @@
       "}",
       ".jtc-hint {",
       "  padding: 4px 8px;",
-      "  font-size: 11px;",
+      "  font: 11px/1.35 " + panelFontStack + ";",
       "  color: #555;",
       "  background: #e8e8e8;",
       "  border-bottom: 1px solid #ccc;",
@@ -330,11 +335,11 @@
       "  flex: 0 0 1.4em;",
       "  text-align: right;",
       "  color: #666;",
-      "  font-size: 12px;",
+      "  font: 12px/1.35 " + panelFontStack + ";",
       "}",
       ".jtc-key {",
       "  flex: 0 0 auto;",
-      "  font-family: ui-monospace, 'Cascadia Code', 'Menlo', monospace;",
+      "  font-family: " + panelFontStack + ";",
       "  font-weight: 600;",
       "  color: #0b57d0;",
       "  max-width: 45%;",
@@ -348,9 +353,7 @@
       "  overflow: hidden;",
       "  text-overflow: ellipsis;",
       "  white-space: nowrap;",
-      "  font-family: '" +
-        PREVIEW_FONT_FAMILY +
-        "', 'PingFang SC', 'Microsoft YaHei', sans-serif;",
+      "  font-family: " + panelFontStack + ";",
       "}",
     ].join("\n");
 
@@ -382,6 +385,8 @@
     );
 
     (document.documentElement || document.body).appendChild(hostEl);
+
+    void loadPreviewFontIntoDocument();
   }
 
   function hideMenu() {
