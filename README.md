@@ -83,6 +83,7 @@ vendor/         # js-yaml
 
 - **Supported:** `input` / `textarea` on ordinary pages (subject to site focus/event quirks).
 - **Not in scope here:** `contenteditable`, a full RIME engine, or linguistic Jyutping parsing beyond what the YAML keys already encode.
+- **Google Docs** (`docs.google.com`) is **intentionally unsupported** for now (no content script there). Use **Google Sheets**, **Gmail**, or other sites until a future Docs-specific adapter exists.
 
 If something fails on a specific site, check the page **console** for `[Jyutcitzi]` messages and confirm `yaml/` and `fonts/` are present in the loaded extension directory.
 
@@ -90,3 +91,5 @@ If something fails on a specific site, check the page **console** for `[Jyutcitz
 
 - If the console shows **`Extension context invalidated`**, you reloaded or updated the extension while this tab was still open. **Reload the tab** (refresh the page); open tabs keep the old content script until then.
 - After **Load unpacked** or **Reload** on `chrome://extensions`, refresh any tabs where you want to use the IME.
+- Do not use **`google.com/sorry/`** (CAPTCHA / anti-bot interstitial) to judge whether the extension works; the content script does not run there by design.
+- **Chrome Web Store:** if **Load unpacked** works but a store upload fails with missing assets, the uploaded **`.zip` is probably incomplete** (e.g. GitHub’s default “Download ZIP” can omit submodule files or fonts). Use the **[Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases)** `.zip` or a folder that includes **`yaml/`** and **`fonts/*.ttf`** next to `manifest.json` before packaging.

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Jyutcitzi",
-  "version": "1.5.14",
+  "version": "1.5.15",
   "description": "Jyutping-style typing in inputs and text areas. Font (PUA) or web output; global PUA rendering on by default. RIME dicts.",
   "icons": {
     "16": "icons/icon128.png",
@@ -25,6 +25,12 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
+      "exclude_matches": [
+        "*://www.google.com/sorry/*",
+        "*://google.com/sorry/*",
+        "*://*.google.com/sorry/*",
+        "*://docs.google.com/*"
+      ],
       "js": ["vendor/js-yaml.min.js", "trie.js", "parser.js", "content.js"],
       "run_at": "document_idle",
       "all_frames": false

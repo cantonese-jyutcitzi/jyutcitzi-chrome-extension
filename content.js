@@ -50,46 +50,75 @@
   var GLOBAL_PUA_STYLE_ID = "jyutcitzi-global-pua-font";
 
   var previewFontPromise = null;
+  /** True after preview TTF loaded into document.fonts; false if missing or failed. */
+  var previewFontOk = false;
+  /** At most one user-facing warn per tab for missing/unreachable bundled assets. */
+  var assetRecoverableFailureWarned = false;
   /** Opt-in: inject document-level font stack so PUA glyphs resolve (see popup). */
   var globalPuaFontRendering = false;
+
+  function isRecoverableAssetFetchFailure(err) {
+    if (!err) return false;
+    var msg = String(err.message || err);
+    return (
+      err.name === "TypeError" && msg.indexOf("Failed to fetch") >= 0
+    );
+  }
+
+  function warnBundledAssetsUnreachableOnce() {
+    if (assetRecoverableFailureWarned) return;
+    assetRecoverableFailureWarned = true;
+    console.warn(
+      "[Jyutcitzi] Could not load bundled extension files (yaml/*.dict.yaml and/or fonts/*.ttf). Ensure the package includes those folders — e.g. use a complete release zip for Chrome Web Store, not a raw GitHub archive without submodules or fonts. See fonts/README.txt.",
+    );
+  }
 
   /**
    * @font-face inside closed Shadow DOM often fails to load chrome-extension:// URLs.
    * Register the font on the page document via FontFace + ArrayBuffer instead.
+   * Always resolves (never rejects) so callers are not stuck on a dead promise.
    */
   function loadPreviewFontIntoDocument() {
     if (previewFontPromise !== null) return previewFontPromise;
     previewFontPromise = (async function () {
-      if (typeof FontFace === "undefined") {
-        console.warn(
-          "[Jyutcitzi] FontFace API missing; preview glyphs may not render.",
-        );
+      try {
+        if (typeof FontFace === "undefined") {
+          console.warn(
+            "[Jyutcitzi] FontFace API missing; preview glyphs may not render.",
+          );
+          previewFontOk = false;
+          return false;
+        }
+        var url = chrome.runtime.getURL(PREVIEW_FONT_PATH);
+        var res = await fetch(url);
+        if (!res.ok) {
+          warnBundledAssetsUnreachableOnce();
+          previewFontOk = false;
+          return false;
+        }
+        var buf = await res.arrayBuffer();
+        var face = new FontFace(PREVIEW_FONT_FAMILY, buf, {
+          weight: "400",
+          style: "normal",
+        });
+        await face.load();
+        document.fonts.add(face);
+        await document.fonts.load("14px '" + PREVIEW_FONT_FAMILY + "'");
+        previewFontOk = true;
+        return true;
+      } catch (err) {
+        if (isRecoverableAssetFetchFailure(err)) {
+          warnBundledAssetsUnreachableOnce();
+        } else {
+          console.warn(
+            "[Jyutcitzi] Preview font load error:",
+            err && err.message ? err.message : err,
+          );
+        }
+        previewFontOk = false;
         return false;
       }
-      var url = chrome.runtime.getURL(PREVIEW_FONT_PATH);
-      var res = await fetch(url);
-      if (!res.ok) {
-        console.warn(
-          "[Jyutcitzi] Preview font not found (" +
-            res.status +
-            "). Add symlink: fonts/JyutcitziWithSourceHanSansHCRegular.ttf → jyutcitzi-fonts submodule. URL:",
-          url,
-        );
-        return false;
-      }
-      var buf = await res.arrayBuffer();
-      var face = new FontFace(PREVIEW_FONT_FAMILY, buf, {
-        weight: "400",
-        style: "normal",
-      });
-      await face.load();
-      document.fonts.add(face);
-      await document.fonts.load("14px '" + PREVIEW_FONT_FAMILY + "'");
-      return true;
-    })().catch(function (err) {
-      console.warn("[Jyutcitzi] Preview font load error:", err);
-      return false;
-    });
+    })();
     return previewFontPromise;
   }
 
@@ -1009,7 +1038,11 @@
       ready = true;
     } catch (err) {
       loadError = err;
-      console.error("[Jyutcitzi] load failed", err);
+      if (isRecoverableAssetFetchFailure(err)) {
+        warnBundledAssetsUnreachableOnce();
+      } else {
+        console.error("[Jyutcitzi] load failed", err);
+      }
       ready = false;
       tlRoot = null;
     }
@@ -1292,9 +1325,7 @@
       syncGlobalPuaRenderingStyle();
     }
     if (changes.outputMode) {
-      loadLexicon().catch(function (err) {
-        console.error("[Jyutcitzi] reload failed", err);
-      });
+      void loadLexicon();
     }
   }
 
@@ -1337,9 +1368,6 @@
   window.addEventListener("resize", onScrollOrResize);
   document.addEventListener("mousedown", onDocMouseDown, true);
 
-  loadPreviewFontIntoDocument().catch(function () {});
-
-  loadLexicon().catch(function (err) {
-    console.error("[Jyutcitzi] init failed", err);
-  });
+  void loadPreviewFontIntoDocument();
+  void loadLexicon();
 })();
