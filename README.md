@@ -11,6 +11,18 @@ This is **not** a full RIME/Squirrel port: there is no separate RIME engine, onl
 1. **[Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases)** → download the latest **`.zip`**, then unzip it.
 2. Open **`chrome://extensions`**, turn **Developer mode** on, click **Load unpacked**, and select the **folder that contains `manifest.json`** (not the zip file, not a parent folder).
 
+### Build for Chrome Web Store (real files, no symlinks)
+
+In this repo, `yaml/*.yaml` and `fonts/*.ttf` are usually **symlinks** into `submodules/`. That is fine for **Load unpacked** on your machine, but **zips for the Web Store** must contain **regular files** or Chrome will fail to `fetch` dictionaries and the preview font (`Failed to fetch`).
+
+From the repo root (with submodules checked out):
+
+```bash
+./scripts/build-extension-dist.sh
+```
+
+This writes **`dist/`** (dereferenced `yaml/` + `fonts/`, plus `manifest.json`, JS, `icons/`, `vendor/`) and **`jyutcitzi-chrome-extension-dist.zip`** in the repo root. Upload **that zip** (or zip **`dist/`** yourself) to the developer dashboard. Do **not** upload the raw GitHub “Code → Download ZIP” unless you know every asset is a real file inside the archive.
+
 ---
 
 ## Usage
@@ -92,4 +104,4 @@ If something fails on a specific site, check the page **console** for `[Jyutcitz
 - If the console shows **`Extension context invalidated`**, you reloaded or updated the extension while this tab was still open. **Reload the tab** (refresh the page); open tabs keep the old content script until then.
 - After **Load unpacked** or **Reload** on `chrome://extensions`, refresh any tabs where you want to use the IME.
 - Do not use **`google.com/sorry/`** (CAPTCHA / anti-bot interstitial) to judge whether the extension works; the content script does not run there by design.
-- **Chrome Web Store:** if **Load unpacked** works but a store upload fails with missing assets, the uploaded **`.zip` is probably incomplete** (e.g. GitHub’s default “Download ZIP” can omit submodule files or fonts). Use the **[Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases)** `.zip` or a folder that includes **`yaml/`** and **`fonts/*.ttf`** next to `manifest.json` before packaging.
+- **Chrome Web Store:** if **Load unpacked** works but a store upload fails with missing assets, the zip likely has **symlinks or missing submodule files**. Run [`scripts/build-extension-dist.sh`](scripts/build-extension-dist.sh) and upload the generated **`jyutcitzi-chrome-extension-dist.zip`**, or use a **[Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases)** asset built the same way.
