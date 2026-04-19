@@ -6,22 +6,77 @@ This is **not** a full RIME/Squirrel port: there is no separate RIME engine, onl
 
 ---
 
-## Install
+## Install (from GitHub Releases)
 
-1. **[Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases)** → download the latest **`.zip`**, then unzip it.
-2. Open **`chrome://extensions`**, turn **Developer mode** on, click **Load unpacked**, and select the **folder that contains `manifest.json`** (not the zip file, not a parent folder).
+**Always install from [Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases), not from the green “Code” button.**
 
-### Build for Chrome Web Store (real files, no symlinks)
+1. Open **[Releases](https://github.com/cantonese-jyutcitzi/jyutcitzi-chrome-extension/releases)** and download **`jyutcitzi-chrome-extension-dist.zip`** from the latest release (or another version you want). That file is the **built extension** with real `yaml/` and `fonts/` inside.
+2. Unzip it. You should see a folder that contains **`manifest.json`** at its top level (along with `content.js`, `yaml/`, `fonts/`, etc.).
+3. Open **`chrome://extensions`**, turn **Developer mode** on, click **Load unpacked**, and select **that folder** (the one that directly contains `manifest.json` — not the `.zip`, and not a parent of that folder).
 
-In this repo, `yaml/*.yaml` and `fonts/*.ttf` are usually **symlinks** into `submodules/`. That is fine for **Load unpacked** on your machine, but **zips for the Web Store** must contain **regular files** or Chrome will fail to `fetch` dictionaries and the preview font (`Failed to fetch`).
+**Do not use GitHub’s “Code → Download ZIP”** for installing or testing the extension. That archive is **source code** (often with **symlinks** into `submodules/`). Chrome needs a package of **real files**; otherwise dictionary/font `fetch` fails (`Failed to fetch`). If you are a maintainer building a release yourself, see below.
 
-From the repo root (with submodules checked out):
+---
+
+## GitHub Releases (for maintainers)
+
+Use **Releases** to ship **`jyutcitzi-chrome-extension-dist.zip`** so testers and the Chrome Web Store get a complete package.
+
+### 1. Build the distributable ZIP
+
+From the repo root (with **submodules** checked out):
 
 ```bash
 ./scripts/build-extension-dist.sh
 ```
 
-This writes **`dist/`** (dereferenced `yaml/` + `fonts/`, plus `manifest.json`, JS, `icons/`, `vendor/`) and **`jyutcitzi-chrome-extension-dist.zip`** in the repo root. Upload **that zip** (or zip **`dist/`** yourself) to the developer dashboard. Do **not** upload the raw GitHub “Code → Download ZIP” unless you know every asset is a real file inside the archive.
+You should get **`dist/`** and **`jyutcitzi-chrome-extension-dist.zip`** at the repo root. Confirm the zip exists.
+
+### 2. Push and tag
+
+```bash
+git add .
+git commit -m "Prepare release"
+git push origin main
+git tag v0.1.0-test1
+git push origin v0.1.0-test1
+```
+
+Use a clear version or prerelease tag (examples: `v0.1.0-test1`, `v0.1.0-beta`). Stable public builds might use `v1.0.0`.
+
+### 3. Create the release on GitHub
+
+1. Repo → **Releases** → **Draft a new release**
+2. **Choose a tag:** e.g. `v0.1.0-test1`
+3. **Release title:** e.g. `Jyutcitzi Chrome Extension v0.1.0-test1`
+4. **Describe** what changed; you can paste the same install steps as in **Install** above for testers.
+5. For tester builds, turn **on** **“This is a pre-release”**; for a stable public release, leave it off.
+6. **Attach** `jyutcitzi-chrome-extension-dist.zip` (drag-and-drop), then **Publish release**.
+
+**Always attach this built zip** — never attach only the source tree zip.
+
+### 4. What to tell testers
+
+Point them to the **Releases** page and ask them to download **`jyutcitzi-chrome-extension-dist.zip`**, unzip, then **Load unpacked** on the extracted folder as in **Install** above.
+
+### Repeatable shortcut
+
+```bash
+./scripts/build-extension-dist.sh
+git push
+git tag v0.1.0-test2
+git push origin v0.1.0-test2
+```
+
+Then draft the release and attach the new zip.
+
+### Automation (optional)
+
+Pushing a **published** GitHub Release can run [`.github/workflows/release-dist.yml`](.github/workflows/release-dist.yml) to build with submodules and attach **`jyutcitzi-chrome-extension-dist.zip`** automatically; you can still do manual releases as above.
+
+### Why the build script exists
+
+In a dev clone, `yaml/*.yaml` and `fonts/*.ttf` are often **symlinks** into `submodules/`. **`rsync -aL`** in [`scripts/build-extension-dist.sh`](scripts/build-extension-dist.sh) copies **real files** into `dist/` and the zip so Chrome can load assets from **`chrome-extension://…`**. Upload **that** zip to the Web Store or Releases. More detail: [`fonts/README.txt`](fonts/README.txt).
 
 ---
 
