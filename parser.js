@@ -22,7 +22,8 @@
   function mergeEntry(map, input, output, weight) {
     var w = typeof weight === "number" && !isNaN(weight) ? weight : 0;
     var prev = map.get(input);
-    if (!prev || w >= prev.weight) map.set(input, { output: output, weight: w });
+    if (!prev || w >= prev.weight)
+      map.set(input, { output: output, weight: w });
   }
 
   /**

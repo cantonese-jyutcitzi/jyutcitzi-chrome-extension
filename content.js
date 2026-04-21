@@ -60,9 +60,7 @@
   function isRecoverableAssetFetchFailure(err) {
     if (!err) return false;
     var msg = String(err.message || err);
-    return (
-      err.name === "TypeError" && msg.indexOf("Failed to fetch") >= 0
-    );
+    return err.name === "TypeError" && msg.indexOf("Failed to fetch") >= 0;
   }
 
   function warnBundledAssetsUnreachableOnce() {
@@ -150,8 +148,7 @@
   }
 
   function fieldState(el) {
-    if (!stateMap.has(el))
-      stateMap.set(el, { buffer: "", panelHist: [] });
+    if (!stateMap.has(el)) stateMap.set(el, { buffer: "", panelHist: [] });
     return stateMap.get(el);
   }
 
@@ -213,9 +210,12 @@
 
   function notifyToolbarIconSync() {
     try {
-      chrome.runtime.sendMessage({ type: "jyutcitziSyncToolbarIcon" }, function () {
-        void chrome.runtime.lastError;
-      });
+      chrome.runtime.sendMessage(
+        { type: "jyutcitziSyncToolbarIcon" },
+        function () {
+          void chrome.runtime.lastError;
+        },
+      );
     } catch (err) {
       /* ignore */
     }
@@ -226,7 +226,10 @@
   var invalidationWarned = false;
 
   function isInvalidatedMessage(msg) {
-    return typeof msg === "string" && msg.indexOf("Extension context invalidated") >= 0;
+    return (
+      typeof msg === "string" &&
+      msg.indexOf("Extension context invalidated") >= 0
+    );
   }
 
   function isInvalidatedError(err) {
@@ -275,7 +278,8 @@
       chrome.storage.local.set(items, function () {
         void chrome.runtime.lastError;
         var le = chrome.runtime.lastError;
-        if (le && isInvalidatedMessage(le.message)) handleInvalidatedContext(null);
+        if (le && isInvalidatedMessage(le.message))
+          handleInvalidatedContext(null);
         if (callback && !extensionContextDead) callback();
       });
       return true;
@@ -566,8 +570,7 @@
       } else {
         var eA = lookup.get(mrow.k1);
         var eB = lookup.get(mrow.k2);
-        preview =
-          (eA ? eA.output : "") + (eB ? eB.output : "");
+        preview = (eA ? eA.output : "") + (eB ? eB.output : "");
       }
       if (preview.length > 80) preview = preview.slice(0, 77) + "…";
 
@@ -759,9 +762,7 @@
 
   /** Lowercase letters only: Jyutping body without tone digits or spaces. */
   function tonelessLetters(s) {
-    return compactInput(String(s))
-      .toLowerCase()
-      .replace(/[1-9]/g, "");
+    return compactInput(String(s)).toLowerCase().replace(/[1-9]/g, "");
   }
 
   function makeTlNode() {
@@ -860,7 +861,10 @@
         var tail = buffer.slice(p.length);
         if (tail.length) {
           addArr(
-            trie.keysWithPrefix(p + " " + tail, Math.max(0, limit - acc.length)),
+            trie.keysWithPrefix(
+              p + " " + tail,
+              Math.max(0, limit - acc.length),
+            ),
           );
         }
         var cbuf = compactInput(buffer);
@@ -960,7 +964,8 @@
   /** Selected dict key matches what the user typed (literal or space-insensitive). */
   function keyMatchesTypedBuffer(key, buf) {
     if (!buf.length) return false;
-    if (key.length >= buf.length && key.slice(0, buf.length) === buf) return true;
+    if (key.length >= buf.length && key.slice(0, buf.length) === buf)
+      return true;
     return compactInput(key) === compactInput(buf);
   }
 
